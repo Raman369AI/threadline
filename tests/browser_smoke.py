@@ -2,6 +2,7 @@
 import base64
 import json
 import shutil
+import socket
 import subprocess
 import tempfile
 import threading
@@ -17,16 +18,20 @@ from threadline.server import make_server
 chrome=next((shutil.which(name) for name in ('google-chrome','google-chrome-stable','chromium','chromium-browser') if shutil.which(name)),None)
 if not chrome: raise SystemExit('Chrome/Chromium is required for browser smoke tests')
 server=make_server(ROOT/'example',port=0);worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
-port=server.server_address[1];debug=9329
+port=server.server_address[1]
+with socket.socket() as probe:
+    probe.bind(('127.0.0.1',0));debug=probe.getsockname()[1]
 with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
-    browser=subprocess.Popen([chrome,'--headless','--no-sandbox','--disable-gpu',f'--remote-debugging-port={debug}',f'--remote-allow-origins=http://127.0.0.1:{debug}',f'--user-data-dir={profile}','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    browser=subprocess.Popen([chrome,'--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check',f'--remote-debugging-port={debug}',f'--remote-allow-origins=http://127.0.0.1:{debug}',f'--user-data-dir={profile}','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
     try:
-        for _ in range(100):
+        for _ in range(400):
             try:
                 request=urllib.request.Request(f'http://127.0.0.1:{debug}/json/new?http://127.0.0.1:{port}',method='PUT')
                 target=json.load(urllib.request.urlopen(request));break
             except Exception: time.sleep(.05)
-        else: raise RuntimeError('Chrome DevTools did not start')
+        else:
+            detail=browser.stderr.read().strip() if browser.poll() is not None else 'browser remained alive but DevTools did not answer within 20 seconds'
+            raise RuntimeError('Chrome DevTools did not start: '+detail[-2000:])
         ws=websocket.create_connection(target['webSocketDebuggerUrl'],origin=f'http://127.0.0.1:{debug}')
         sequence=0;errors=[]
         def command(method,params=None):

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "threadline-review"
+version = "0.2.0a1"
+description = "Visual, source-backed review of Python workflows before execution"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {file = "LICENSE"}
+authors = [{name = "Threadline contributors"}]
+classifiers = ["Development Status :: 3 - Alpha", "Programming Language :: Python :: 3", "License :: OSI Approved :: MIT License"]
+keywords = ["python", "static-analysis", "code-review", "visualization"]
+
+[project.urls]
+Homepage = "https://github.com/Raman369AI/threadline"
+Repository = "https://github.com/Raman369AI/threadline"
+Issues = "https://github.com/Raman369AI/threadline/issues"
+
+[project.optional-dependencies]
+browser-test = ["websocket-client>=1.7,<2"]
+
+[project.scripts]
+threadline = "threadline.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = ["threadline", "threadline.static"]
+
+[tool.setuptools.package-data]
+"threadline.static" = ["*.html", "*.js", "*.css"]

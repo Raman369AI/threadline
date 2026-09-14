@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "repositories": [
+    {
+      "name": "flask",
+      "url": "https://github.com/pallets/flask.git",
+      "revision": "d73fa1cdcbd8b1465c151db8924ba58b1dd14e35",
+      "exclude": ["docs", "tests", "examples"],
+      "forbiddenImports": ["flask"],
+      "reviewSymbol": {"qualified": "Flask.full_dispatch_request", "file": "src/flask/app.py"},
+      "minimums": {"files": 20, "definitions": 350, "branches": 5, "workflowStages": 5, "workflowFiles": 1},
+      "requiredStatuses": ["supported", "possible", "external"]
+    },
+    {
+      "name": "requests",
+      "url": "https://github.com/psf/requests.git",
+      "revision": "dae7ef63b4df6eded86637f251fc4e3a06c3b479",
+      "exclude": ["docs", "tests"],
+      "forbiddenImports": ["requests"],
+      "reviewSymbol": {"qualified": "Session.request", "file": "src/requests/sessions.py"},
+      "minimums": {"files": 15, "definitions": 250, "branches": 4, "workflowStages": 8, "workflowFiles": 1},
+      "requiredStatuses": ["supported", "possible", "external", "unknown"]
+    },
+    {
+      "name": "fastapi",
+      "url": "https://github.com/fastapi/fastapi.git",
+      "revision": "50113da16fec53b66b80d75e80a89296de4fa5a5",
+      "exclude": ["docs", "tests", "scripts"],
+      "forbiddenImports": ["fastapi"],
+      "reviewSymbol": {"qualified": "get_request_handler", "file": "fastapi/routing.py"},
+      "minimums": {"files": 450, "definitions": 1000, "branches": 5, "workflowStages": 7, "workflowFiles": 2},
+      "requiredStatuses": ["supported", "possible", "external"]
+    },
+    {
+      "name": "celery",
+      "url": "https://github.com/celery/celery.git",
+      "revision": "ea1db4a551a40c3ec1192abeed4785853833cda5",
+      "exclude": ["docs", "t", "examples"],
+      "forbiddenImports": ["celery"],
+      "reviewSymbol": {"qualified": "Task.apply_async", "file": "celery/app/task.py"},
+      "minimums": {"files": 150, "definitions": 3000, "branches": 15, "workflowStages": 15, "workflowFiles": 1},
+      "requiredStatuses": ["supported", "possible", "external", "unknown"]
+    }
+  ]
+}

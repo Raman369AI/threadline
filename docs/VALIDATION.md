@@ -1,5 +1,7 @@
 # Validation record
 
+[Documentation home](README.md) · [Project home](../README.md)
+
 Validated on 2026-09-14 (America/Chicago). [The complete CI run](https://github.com/Raman369AI/threadline/actions/runs/34922515651) passed for application/test commit `8c9d088` (see the run for the full SHA).
 The maintainer owns the three first-time reviewer sessions; the remaining engineering gates are complete.
 

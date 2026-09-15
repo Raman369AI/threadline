@@ -1,5 +1,7 @@
 # Stable release gate
 
+[Documentation home](README.md) · [Project home](../README.md)
+
 The engineering gates below passed in [CI run 34922515651](https://github.com/Raman369AI/threadline/actions/runs/34922515651) for commit `8c9d088`.
 The maintainer owns reviewer-session results and the final release decision. The existing
 alpha version remains unchanged until that decision.

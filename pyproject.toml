@@ -15,6 +15,7 @@ keywords = ["python", "static-analysis", "code-review", "visualization"]
 
 [project.urls]
 Homepage = "https://github.com/Raman369AI/threadline"
+Documentation = "https://github.com/Raman369AI/threadline/tree/main/docs"
 Repository = "https://github.com/Raman369AI/threadline"
 Issues = "https://github.com/Raman369AI/threadline/issues"
 

@@ -1,5 +1,7 @@
 # Threadline
 
+[Documentation](docs/README.md) · [Getting started](docs/USING_THREADLINE.md) · [Capabilities](docs/CAPABILITIES.md) · [Contributing](CONTRIBUTING.md)
+
 Threadline is a visual Python code reviewer for understanding a workflow before running it.
 
 Select any function or method. Threadline shows its inputs and outputs, local control flow, calls into other files, return destinations, effects, and unresolved targets. Select any step to inspect the exact original source while keeping the surrounding workflow visible.
@@ -52,7 +54,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install .
 ```
 
-From a release wheel:
+If you have a locally built or shared release wheel:
 
 ```bash
 python3 -m venv .venv
@@ -115,6 +117,19 @@ Threadline labels call relationships according to their evidence:
 These labels describe source structure. They do not represent an observed execution or prove that the code is correct.
 
 See the [capability matrix](docs/CAPABILITIES.md), [usage guide](docs/USING_THREADLINE.md), and [validation record](docs/VALIDATION.md) for details.
+
+## Documentation
+
+Start with the **[documentation hub](docs/README.md)** for installation, everyday review, analysis limits, and project maintenance.
+
+| I want to… | Read |
+| --- | --- |
+| Review a repository or Git change | [Usage guide](docs/USING_THREADLINE.md) |
+| Understand supported syntax and uncertain calls | [Capability matrix](docs/CAPABILITIES.md) |
+| Check test results and platform coverage | [Validation record](docs/VALIDATION.md) |
+| Understand keyboard access and browser checks | [Accessibility](docs/ACCESSIBILITY.md) |
+| Check resource limits for a larger repository | [Performance and resource budgets](docs/PERFORMANCE.md) |
+| Report a vulnerability privately | [Security policy](SECURITY.md) |
 
 ## Validation
 

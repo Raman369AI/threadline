@@ -1,5 +1,7 @@
 # Public repository validation
 
+[Documentation home](README.md) · [Project home](../README.md)
+
 Validated on 2026-09-14 (America/Chicago) with Python 3.12.3. Exact commits, selected
 source roots, expected uncertainty states, and resource budgets are pinned in
 [the corpus manifest](../tests/online_repositories.json).

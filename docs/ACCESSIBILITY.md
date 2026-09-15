@@ -1,5 +1,7 @@
 # Accessibility and native Safari validation
 
+[Documentation home](README.md) · [Project home](../README.md)
+
 [CI run 34922515651](https://github.com/Raman369AI/threadline/actions/runs/34922515651) passed for application/test commit `8c9d088`.
 Reports and screenshots are retained in the `accessibility-ubuntu-latest` and
 `accessibility-macos-latest` artifacts.

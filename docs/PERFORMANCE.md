@@ -1,5 +1,7 @@
 # Performance and resource budgets
 
+[Documentation home](README.md) · [Project home](../README.md)
+
 These are provisional engineering acceptance budgets, not measured reviewer expectations.
 Revisit them after the first-time reviewer sessions. Corpus timings exclude Git fetch and
 run in isolated processes so peak RSS belongs to one repository.

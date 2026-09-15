@@ -1,5 +1,7 @@
 # First-time reviewer acceptance protocol
 
+[Documentation home](README.md) · [Project home](../README.md)
+
 Status: **maintainer-owned — the user will conduct and record the three sessions.**
 
 The engineering task proceeds on that assumption. No participant results are fabricated here.

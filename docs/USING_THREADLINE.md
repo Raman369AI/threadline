@@ -1,5 +1,7 @@
 # Using Threadline
 
+[Documentation home](README.md) · [Project home](../README.md)
+
 Threadline is a standalone visual reviewer. Give it a local directory containing Python source; it parses the files without installing, importing, or running the target project.
 
 ## Install from a source checkout
@@ -57,7 +59,7 @@ Use `--source-root` for an application source directory and repeat `--exclude` f
 
 ## Validate public repositories
 
-The maintained corpus pins Flask, Requests, FastAPI, and Celery commits. The runner clones source into a temporary directory and checks parsing, statement and call accounting, method inputs and outputs, branches, workflow pagination, uncertainty labels, original evidence retrieval, absence of target imports, and an unchanged Git working tree.
+The maintained corpus pins Flask, Requests, FastAPI, Celery, Django, OpenTelemetry, and Pants commits. See the [public repository validation record](ONLINE_VALIDATION.md) for the corpus and measured results. The runner clones source into a temporary directory and checks parsing, statement and call accounting, method inputs and outputs, branches, workflow pagination, uncertainty labels, original evidence retrieval, absence of target imports, and an unchanged Git working tree.
 
 ```bash
 python tests/online_repo_smoke.py

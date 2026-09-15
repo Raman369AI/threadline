@@ -1,5 +1,7 @@
 # Capability matrix (alpha)
 
+[Documentation home](README.md) · [Project home](../README.md)
+
 | Pattern | Current behavior | Confidence limit |
 | --- | --- | --- |
 | Plain Python functions and methods | Local statements, branches, loops, exceptions, calls, returns, source spans | Dynamic dispatch and path feasibility are not proven. |

@@ -83,7 +83,7 @@ Try the bundled example:
 .venv/bin/threadline review example
 ```
 
-## Review an AI-generated change
+## Review a Git change
 
 Run Threadline from the working tree and provide the Git baseline:
 

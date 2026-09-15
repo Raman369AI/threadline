@@ -33,11 +33,10 @@ New Python minor versions require a matrix run before being advertised as suppor
 CI runs the platform matrix and the public corpus on pushes and pull requests. Candidate
 wheel artifacts are retained. It does not publish a package or create a stable release.
 
-## Reviewer sessions — handled by the maintainer
+## Reviewer sessions
 
-The maintainer has taken responsibility for the three first-time reviewer sessions.
-Use [REVIEWER_SESSIONS.md](REVIEWER_SESSIONS.md) to record their results. This engineering
-work proceeds independently; it does not invent participant observations.
+The maintainer must record three uncoached reviewer sessions using
+[REVIEWER_SESSIONS.md](REVIEWER_SESSIONS.md) before stable release sign-off.
 
 The executable accessibility gate is `tests/browser_accessibility.py`: keyboard search,
 source selection, branches, calls, focus visibility/return, reflow, 200% layout zoom,

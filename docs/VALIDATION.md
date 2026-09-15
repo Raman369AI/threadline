@@ -45,15 +45,15 @@ Targets were read as source only. No target dependencies were installed and no t
 source was imported or executed. Git working trees remained clean. See
 [the public corpus](ONLINE_VALIDATION.md) and [resource budgets](PERFORMANCE.md).
 
-## Maintainer-owned release sign-off
+## Release sign-off
 
-The user has taken responsibility for the three uncoached reviewer sessions using
-[the documented protocol](REVIEWER_SESSIONS.md). Their observations are not fabricated
-in this record. Performance budgets remain provisional until reviewed against that feedback.
+Three uncoached reviewer sessions remain pending under
+[the documented protocol](REVIEWER_SESSIONS.md). Performance budgets remain provisional
+until reviewed against that feedback.
 
 Linux/macOS, Safari, keyboard operation, reflow/zoom, accessibility semantics, installation,
 and corpus checks are now verified. The application remains at its existing alpha package
-version; this work does not publish a stable package or merge the validation branch.
+version pending release sign-off.
 
 See [the release checklist](RELEASE_CHECKLIST.md). Automated evidence checks do not prove
 runtime correctness or constitute a human screen-reader session.

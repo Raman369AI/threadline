@@ -2,13 +2,11 @@
 
 [Documentation home](README.md) · [Project home](../README.md)
 
-Status: **maintainer-owned — the user will conduct and record the three sessions.**
-
-The engineering task proceeds on that assumption. No participant results are fabricated here.
+Status: **pending maintainer validation.** Record three completed sessions before stable release sign-off.
 
 Recruit three people who have not used Threadline. Do not send repository source to
 third parties without its owner's permission. The bundled example is suitable for
-this exercise. This protocol requires no analytics service or chat integration.
+this exercise. Record observations locally using the session table below.
 
 ## Setup
 

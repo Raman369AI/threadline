@@ -24,6 +24,7 @@ def main(argv=None, default_command=None):
     args=parser.parse_args(values)
     try:
         if args.command=='review':
+            print('Reading Python source… Large repositories can take up to one minute; use --source-root to narrow the review.', flush=True)
             server=make_server(args.project,port=args.port,base=args.base,source_roots=args.source_root,exclude=args.exclude,change_files=args.change_files);url=f'http://127.0.0.1:{server.server_address[1]}/'
             print(f'Threadline is reviewing {Path(args.project).resolve()}\nOpen {url}',flush=True)
             if not args.no_open:webbrowser.open(url)
@@ -37,7 +38,7 @@ def main(argv=None, default_command=None):
             else:result=store.find_symbols(args.query,cursor=args.cursor,limit=args.limit)
             print(json.dumps(result,ensure_ascii=False,indent=2))
         elif args.command=='changes': print(json.dumps(review_changes(args.project,args.base,args.change_files),ensure_ascii=False,indent=2))
-    except ThreadlineError as exc:
+    except (ThreadlineError, ValueError, OSError) as exc:
         parser.error(str(exc))
 
 def _resolve(model, selector):

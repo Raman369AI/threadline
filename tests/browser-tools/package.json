@@ -1,0 +1,7 @@
+{
+  "name": "threadline-browser-test-tools",
+  "private": true,
+  "devDependencies": {
+    "axe-core": "4.13.0"
+  }
+}

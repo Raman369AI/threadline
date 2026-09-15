@@ -120,7 +120,7 @@ See the [capability matrix](docs/CAPABILITIES.md), [usage guide](docs/USING_THRE
 
 The self-contained suite covers source non-execution, exact statement and call accounting, branches, exceptions, loops, recursion, cross-file calls, snapshot evidence, Git changes, HTTP restrictions, packaging, and browser behavior.
 
-A separate acceptance corpus tests pinned versions of [Flask](https://github.com/pallets/flask), [Requests](https://github.com/psf/requests), [FastAPI](https://github.com/fastapi/fastapi), and [Celery](https://github.com/celery/celery). See [public repository validation](docs/ONLINE_VALIDATION.md).
+A separate acceptance corpus tests pinned versions of [Flask](https://github.com/pallets/flask), [Requests](https://github.com/psf/requests), [FastAPI](https://github.com/fastapi/fastapi), [Celery](https://github.com/celery/celery), [Django](https://github.com/django/django), [OpenTelemetry](https://github.com/open-telemetry/opentelemetry-python), and [Pants](https://github.com/pantsbuild/pants). See [public repository validation](docs/ONLINE_VALIDATION.md).
 
 ```bash
 python3 -m unittest discover -v
@@ -128,10 +128,12 @@ node --check threadline/static/app.js
 node --check threadline/static/workflow.js
 python3 tests/browser_smoke.py
 python3 tests/online_repo_smoke.py --report artifacts/online-validation.json
+python3 -m pip wheel . --no-deps -w dist
+python3 tests/release_smoke.py dist/*.whl
 ```
 
 ## Project status
 
-Threadline is a developer alpha. The standalone application and wheel are usable now. Broader framework fixtures, large-repository performance budgets, and first-time reviewer studies remain before a stable release.
+Threadline is a developer alpha. The standalone application and wheel are usable now. The expanded corpus and provisional performance budgets are automated. Three first-time reviewer sessions and the platform/browser release sign-off remain before a stable release. See the [release checklist](docs/RELEASE_CHECKLIST.md) and [resource budgets](docs/PERFORMANCE.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md), and the [MIT License](LICENSE).

@@ -3,12 +3,59 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import io
+import stat
+import time
 import os
 import tokenize
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 EXCLUDED = {'.git', '.venv', 'venv', 'env', '__pycache__', 'node_modules', 'dist', 'build', '.tox', '.mypy_cache', '.pytest_cache'}
+MAX_FILE_BYTES = 2 * 1024 * 1024
+MAX_TOTAL_BYTES = 64 * 1024 * 1024
+MAX_FILES = 10000
+MAX_AST_NODES = 2_000_000
+MAX_ANALYSIS_SECONDS = 60
+
+
+class AnalysisLimitError(ValueError):
+    """Source exceeds the supported analysis budget; narrow the source roots."""
+
+
+def read_source_bytes(path, root, limit=MAX_FILE_BYTES):
+    """Read one regular file, refusing symlinks and oversized inputs."""
+    relative = path.relative_to(root)
+    # On POSIX, pin every directory component to prevent symlink swaps.
+    descriptors = []
+    try:
+        if os.open in os.supports_dir_fd and hasattr(os, 'O_NOFOLLOW'):
+            parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            descriptors.append(parent)
+            for part in relative.parts[:-1]:
+                parent = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                descriptors.append(parent)
+            fd = os.open(relative.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        else:
+            if any((root.joinpath(*relative.parts[:i])).is_symlink() for i in range(1, len(relative.parts)+1)):
+                raise OSError('symlink source is not allowed')
+            fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0))
+        descriptors.append(fd)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError('source is not a regular file')
+        if info.st_size > limit:
+            raise AnalysisLimitError(f'{relative}: exceeds {limit} byte file budget; use --exclude')
+        with os.fdopen(os.dup(fd), 'rb') as stream:
+            raw = stream.read(limit + 1)
+        if len(raw) > limit:
+            raise AnalysisLimitError(f'{relative}: exceeds file byte budget')
+        return raw
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
 
@@ -39,9 +86,18 @@ class Analyzer:
         self.module_aliases = {}
         self.instances = {}
         self.rebindings = {}
+        self.duplicate_definitions = defaultdict(list)
+        self.ambiguous_imports = set()
         self.excluded = []
         self.errors = []
         self.calls = []
+        self.started = time.monotonic()
+        self.total_bytes = 0
+        self.total_nodes = 0
+        try:
+            self.configuration = read_source_bytes(self.root / "pyproject.toml", self.root).decode("utf-8")
+        except (OSError, UnicodeError):
+            self.configuration = ""
         self.construct_counts = Counter()
 
 
@@ -84,14 +140,23 @@ class Analyzer:
                     if file in seen or self.is_user_excluded(path):
                         continue
                     seen.add(file)
+                    if len(seen) > MAX_FILES or time.monotonic() - self.started > MAX_ANALYSIS_SECONDS:
+                        raise AnalysisLimitError('Analysis budget exceeded; narrow --source-root or --exclude')
                     if path.is_symlink():
                         self.excluded.append({'path': file, 'reason': 'symlink'}); continue
                     try:
-                        raw = path.read_bytes()
-                        with tokenize.open(path) as stream: source = stream.read()
+                        raw = read_source_bytes(path, self.root)
+                        self.total_bytes += len(raw)
+                        if self.total_bytes > MAX_TOTAL_BYTES:
+                            raise AnalysisLimitError('Repository byte budget exceeded; narrow --source-root')
+                        encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
+                        source = raw.decode(encoding)
                         tree = ast.parse(source, filename=file, type_comments=True)
-                    except (SyntaxError, UnicodeError, OSError) as exc:
+                    except (SyntaxError, UnicodeError, OSError, RecursionError) as exc:
                         self.errors.append({'file': file, 'message': str(exc)}); continue
+                    self.total_nodes += sum(1 for _ in ast.walk(tree))
+                    if self.total_nodes > MAX_AST_NODES:
+                        raise AnalysisLimitError('AST node budget exceeded; narrow --source-root')
                     self.files[file] = {'source': source, 'hash': hashlib.sha256(raw).hexdigest(), 'tree': tree, 'lines': len(source.splitlines())}
                     parts = list(path.relative_to(scan_root).with_suffix('').parts)
                     if scan_root == self.root and 'src' in parts:
@@ -166,6 +231,7 @@ class Analyzer:
         self.ast_scopes[id(node)] = scope_id
         if parent:
             parent['symbols'][name] = scope_id
+            self.duplicate_definitions[(parent['id'], name)].append(scope_id)
         self.symbols.setdefault(f'{module}.{qualified}', []).append(scope_id)
         return scope
 
@@ -188,7 +254,7 @@ class Analyzer:
         cursor = scope
         while cursor:
             if name in cursor['symbols']:
-                return [cursor['symbols'][name]], 'definition in lexical scope'
+                return self.duplicate_definitions.get((cursor['id'], name), [cursor['symbols'][name]]), 'definition in lexical scope'
             if name in cursor['imports']:
                 imported = cursor['imports'][name]
                 return self.symbols.get(imported, []), f'import {imported}'
@@ -214,10 +280,14 @@ class Analyzer:
                 if isinstance(child, ast.ImportFrom):
                     prefix = self.import_path(scope, child)
                     for alias in child.names:
-                        scope['imports'][alias.asname or alias.name] = f'{prefix}.{alias.name}'
+                        key = alias.asname or alias.name
+                        if key in scope['imports']: self.ambiguous_imports.add((scope['id'], key))
+                        scope['imports'][key] = f'{prefix}.{alias.name}'
                 elif isinstance(child, ast.Import):
                     for alias in child.names:
-                        scope['imports'][alias.asname or alias.name.split('.')[0]] = alias.name if alias.asname else alias.name.split('.')[0]
+                        key = alias.asname or alias.name.split('.')[0]
+                        if key in scope['imports']: self.ambiguous_imports.add((scope['id'], key))
+                        scope['imports'][key] = alias.name if alias.asname else alias.name.split('.')[0]
                 self.collect_imports(child, scope)
 
     def imported_name(self, scope, name):
@@ -302,7 +372,14 @@ class Analyzer:
                 cursor = self.scopes.get(cursor['parent'])
         if targets:
             decorated = any(self.scopes[t]['decorators'] for t in targets)
-            shadowed = any(p['name'] == name for p in scope['params']) or name in self.rebindings.get(scope['id'], set())
+            shadowed = False
+            receiver = name.split('.')[0]
+            cursor = scope
+            while cursor:
+                shadowed |= any(p['name'] in (name, receiver) for p in cursor['params'])
+                shadowed |= any(binding in (name, receiver) for binding in self.rebindings.get(cursor['id'], set()))
+                shadowed |= (cursor['id'], receiver) in self.ambiguous_imports
+                cursor = self.scopes.get(cursor['parent'])
             return targets, 'possible' if decorated or shadowed or len(targets) != 1 else 'supported', reason + ('; decorators may wrap the target' if decorated else '') + ('; local binding may shadow the definition' if shadowed else '')
         if reason.startswith('import '):
             return [], 'external', reason + '; implementation not indexed'
@@ -563,13 +640,21 @@ class Analyzer:
         statuses = Counter(c['status'] for c in {c['id']: c for c in self.calls}.values())
         statement_total = sum(sum(isinstance(n, ast.stmt) for n in ast.walk(info['tree'])) for info in self.files.values())
         modeled_statements = sum(self.construct_counts.values()) - kinds['lambda']
+        calls_by_scope = defaultdict(list)
+        callers_by_target = defaultdict(dict)
+        for call in self.calls:
+            calls_by_scope[call['scope']].append(call)
+            for target in call['targets'] if call['status'] == 'supported' else []:
+                callers_by_target[target][call['scope']] = None
         for scope in self.scopes.values():
-            own_calls = [c for c in self.calls if c['scope'] == scope['id']]
+            if time.monotonic() - self.started > MAX_ANALYSIS_SECONDS:
+                raise AnalysisLimitError('Analysis time budget exceeded; narrow --source-root')
+            own_calls = calls_by_scope[scope['id']]
             scope['stats'] = {'calls': len(own_calls), 'unresolved': sum(c['status'] == 'unknown' for c in own_calls), 'branches': sum(len(n['branches']) + len(n['decisions']) for n in self.walk_flow(scope['flow']))}
-            scope['callers'] = list(dict.fromkeys(c['scope'] for c in self.calls if scope['id'] in c['targets']))
+            scope['callers'] = list(callers_by_target[scope['id']])
             scope.pop('symbols')
             scope.pop('imports')
-        return {'project': self.root.name, 'root': str(self.root), 'files': {f: {'source': i['source'], 'hash': i['hash'], 'lines': i['lines']} for f, i in self.files.items()},
+        return {'analysisOptions': {'sourceRoots': [str(path.relative_to(self.root)) for path in self.source_roots], 'exclude': sorted(self.user_excluded)}, 'configuration': self.configuration, 'project': self.root.name, 'root': str(self.root), 'files': {f: {'source': i['source'], 'hash': i['hash'], 'lines': i['lines']} for f, i in self.files.items()},
                 'scopes': self.scopes, 'errors': self.errors, 'excluded': self.excluded,
                 'coverage': {'files': len(self.files), 'discovered': len(self.files) + len(self.errors), 'kinds': dict(kinds), 'definitions': sum(v for k, v in kinds.items() if k not in ('module', 'class')), 'statements': statement_total, 'representedStatements': modeled_statements, 'calls': len(all_calls), 'representedCalls': len(represented_calls), 'statuses': dict(statuses), 'unmodeledCalls': unmodeled_calls, 'constructs': dict(self.construct_counts)},
                 'limits': ['Source structure is exhaustive within parsed files; runtime paths and effects are not proven.', 'Dynamic dispatch, aliases, descriptors, decorators, callbacks, and implicit protocol calls may remain unresolved.', 'Data highlights show lexical definitions and uses; alias propagation and path feasibility are not proven.', 'Annotations are shown as source; evaluation depends on Python version and future imports.']}

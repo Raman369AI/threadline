@@ -5,41 +5,255 @@
       "name": "flask",
       "url": "https://github.com/pallets/flask.git",
       "revision": "d73fa1cdcbd8b1465c151db8924ba58b1dd14e35",
-      "exclude": ["docs", "tests", "examples"],
-      "forbiddenImports": ["flask"],
-      "reviewSymbol": {"qualified": "Flask.full_dispatch_request", "file": "src/flask/app.py"},
-      "minimums": {"files": 20, "definitions": 350, "branches": 5, "workflowStages": 5, "workflowFiles": 1},
-      "requiredStatuses": ["supported", "possible", "external"]
+      "exclude": [
+        "docs",
+        "tests",
+        "examples"
+      ],
+      "forbiddenImports": [
+        "flask"
+      ],
+      "reviewSymbol": {
+        "qualified": "Flask.full_dispatch_request",
+        "file": "src/flask/app.py"
+      },
+      "minimums": {
+        "files": 20,
+        "definitions": 350,
+        "branches": 5,
+        "workflowStages": 5,
+        "workflowFiles": 1
+      },
+      "requiredStatuses": [
+        "supported",
+        "possible",
+        "external"
+      ],
+      "budgets": {
+        "analysisSeconds": 15,
+        "querySeconds": 2,
+        "peakRssMiB": 1024
+      }
     },
     {
       "name": "requests",
       "url": "https://github.com/psf/requests.git",
       "revision": "dae7ef63b4df6eded86637f251fc4e3a06c3b479",
-      "exclude": ["docs", "tests"],
-      "forbiddenImports": ["requests"],
-      "reviewSymbol": {"qualified": "Session.request", "file": "src/requests/sessions.py"},
-      "minimums": {"files": 15, "definitions": 250, "branches": 4, "workflowStages": 8, "workflowFiles": 1},
-      "requiredStatuses": ["supported", "possible", "external", "unknown"]
+      "exclude": [
+        "docs",
+        "tests"
+      ],
+      "forbiddenImports": [
+        "requests"
+      ],
+      "reviewSymbol": {
+        "qualified": "Session.request",
+        "file": "src/requests/sessions.py"
+      },
+      "minimums": {
+        "files": 15,
+        "definitions": 250,
+        "branches": 4,
+        "workflowStages": 8,
+        "workflowFiles": 1
+      },
+      "requiredStatuses": [
+        "supported",
+        "possible",
+        "external",
+        "unknown"
+      ],
+      "budgets": {
+        "analysisSeconds": 15,
+        "querySeconds": 2,
+        "peakRssMiB": 1024
+      }
     },
     {
       "name": "fastapi",
       "url": "https://github.com/fastapi/fastapi.git",
       "revision": "50113da16fec53b66b80d75e80a89296de4fa5a5",
-      "exclude": ["docs", "tests", "scripts"],
-      "forbiddenImports": ["fastapi"],
-      "reviewSymbol": {"qualified": "get_request_handler", "file": "fastapi/routing.py"},
-      "minimums": {"files": 450, "definitions": 1000, "branches": 5, "workflowStages": 7, "workflowFiles": 2},
-      "requiredStatuses": ["supported", "possible", "external"]
+      "exclude": [
+        "docs",
+        "tests",
+        "scripts"
+      ],
+      "forbiddenImports": [
+        "fastapi"
+      ],
+      "reviewSymbol": {
+        "qualified": "get_request_handler",
+        "file": "fastapi/routing.py"
+      },
+      "minimums": {
+        "files": 450,
+        "definitions": 1000,
+        "branches": 5,
+        "workflowStages": 7,
+        "workflowFiles": 2
+      },
+      "requiredStatuses": [
+        "supported",
+        "possible",
+        "external"
+      ],
+      "budgets": {
+        "analysisSeconds": 15,
+        "querySeconds": 2,
+        "peakRssMiB": 1024
+      }
     },
     {
       "name": "celery",
       "url": "https://github.com/celery/celery.git",
       "revision": "ea1db4a551a40c3ec1192abeed4785853833cda5",
-      "exclude": ["docs", "t", "examples"],
-      "forbiddenImports": ["celery"],
-      "reviewSymbol": {"qualified": "Task.apply_async", "file": "celery/app/task.py"},
-      "minimums": {"files": 150, "definitions": 3000, "branches": 15, "workflowStages": 15, "workflowFiles": 1},
-      "requiredStatuses": ["supported", "possible", "external", "unknown"]
+      "exclude": [
+        "docs",
+        "t",
+        "examples"
+      ],
+      "forbiddenImports": [
+        "celery"
+      ],
+      "reviewSymbol": {
+        "qualified": "Task.apply_async",
+        "file": "celery/app/task.py"
+      },
+      "minimums": {
+        "files": 150,
+        "definitions": 3000,
+        "branches": 15,
+        "workflowStages": 15,
+        "workflowFiles": 1
+      },
+      "requiredStatuses": [
+        "supported",
+        "possible",
+        "external",
+        "unknown"
+      ],
+      "budgets": {
+        "analysisSeconds": 15,
+        "querySeconds": 2,
+        "peakRssMiB": 1024
+      }
+    },
+    {
+      "name": "django",
+      "url": "https://github.com/django/django.git",
+      "revision": "75c4403f07b8ad25893f7832dbe8fc6814b53b2d",
+      "sourceRoots": [
+        "."
+      ],
+      "exclude": [
+        "tests",
+        "docs",
+        "scripts"
+      ],
+      "forbiddenImports": [
+        "django"
+      ],
+      "reviewSymbol": {
+        "qualified": "BaseHandler._get_response",
+        "file": "django/core/handlers/base.py"
+      },
+      "minimums": {
+        "files": 700,
+        "definitions": 5000,
+        "branches": 10,
+        "workflowStages": 15,
+        "workflowFiles": 1
+      },
+      "requiredStatuses": [
+        "supported",
+        "possible",
+        "external",
+        "unknown"
+      ],
+      "budgets": {
+        "analysisSeconds": 30,
+        "querySeconds": 2,
+        "peakRssMiB": 1024
+      },
+      "expectedCalls": [
+        {
+          "name": "self.resolve_request",
+          "status": "possible"
+        },
+        {
+          "name": "wrapped_callback",
+          "status": "unknown"
+        },
+        {
+          "name": "middleware_method",
+          "status": "unknown"
+        }
+      ]
+    },
+    {
+      "name": "opentelemetry",
+      "url": "https://github.com/open-telemetry/opentelemetry-python.git",
+      "revision": "cfad5ebf227735da5ca964054f11891334ea8e2c",
+      "sourceRoots": [
+        "opentelemetry-api/src",
+        "opentelemetry-sdk/src"
+      ],
+      "exclude": [],
+      "forbiddenImports": [
+        "opentelemetry"
+      ],
+      "reviewSymbol": {
+        "qualified": "Tracer.start_span",
+        "file": "opentelemetry-sdk/src/opentelemetry/sdk/trace/__init__.py"
+      },
+      "minimums": {
+        "files": 70,
+        "definitions": 400,
+        "branches": 3,
+        "workflowStages": 5,
+        "workflowFiles": 1
+      },
+      "requiredStatuses": [
+        "possible",
+        "external"
+      ],
+      "budgets": {
+        "analysisSeconds": 15,
+        "querySeconds": 2,
+        "peakRssMiB": 1024
+      }
+    },
+    {
+      "name": "pants",
+      "url": "https://github.com/pantsbuild/pants.git",
+      "revision": "24c4ecae0e84b795fb090c1219ba7dd4aeb0968d",
+      "sourceRoots": [
+        "src/python"
+      ],
+      "exclude": [],
+      "forbiddenImports": [
+        "pants"
+      ],
+      "reviewSymbol": {
+        "qualified": "PantsRunner.run",
+        "file": "src/python/pants/bin/pants_runner.py"
+      },
+      "minimums": {
+        "files": 1500,
+        "definitions": 10000,
+        "branches": 1,
+        "workflowStages": 5,
+        "workflowFiles": 1
+      },
+      "requiredStatuses": [
+        "possible",
+        "external"
+      ],
+      "budgets": {
+        "analysisSeconds": 60,
+        "querySeconds": 3,
+        "peakRssMiB": 2048
+      }
     }
   ]
 }

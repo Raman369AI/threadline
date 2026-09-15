@@ -79,15 +79,15 @@ def suggested_entrypoints(model):
 
 def _declared_scripts(model):
     """Read standard project metadata as data. Never imports build configuration."""
-    from pathlib import Path
     try:
         import tomllib
-        raw = (Path(model['root']) / 'pyproject.toml').read_bytes()
-        document = tomllib.loads(raw.decode('utf-8'))
+        document = tomllib.loads(model.get('configuration', ''))
     except (OSError, UnicodeError, ValueError):
         return set()
-    values = list(document.get('project', {}).get('scripts', {}).values())
-    poetry = document.get('tool', {}).get('poetry', {}).get('scripts', {})
+    def table(value):
+        return value if isinstance(value, dict) else {}
+    values = list(table(table(document.get('project')).get('scripts')).values())
+    poetry = table(table(table(document.get('tool')).get('poetry')).get('scripts'))
     values.extend(value for value in poetry.values() if isinstance(value, str))
     return {value.split('[', 1)[0].strip() for value in values if isinstance(value, str)}
 
@@ -145,7 +145,11 @@ def generic_workflow(model, scope_id, max_stages=500):
                         uncertainties.append({'stage': stage_id, 'status': 'recursive', 'reason': 'Recursive call; body is represented at its first expansion.',
                                               'possibleTargets': targets, 'span': call['span']})
                     elif target['id'] not in expanded:
-                        expand(target['id'], stage_id, depth + 1)
+                        if depth + 1 >= 100:
+                            stage['expansionTruncated'] = True
+                            omitted += 1
+                        else:
+                            expand(target['id'], stage_id, depth + 1)
                 for branch in operation['branches']:
                     visit(branch['nodes'], path + (branch['label'],))
         visit(current['flow'])

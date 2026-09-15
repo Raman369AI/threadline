@@ -1,23 +1,50 @@
-# Alpha validation record
+# Validation record
 
-Date: 2026-09-13
+Validated on 2026-09-14 (America/Chicago), Linux x86_64. The working candidate remains
+an alpha pending the human and platform release gates.
 
-Machine: Linux x86_64, AMD Ryzen 5 8645HS (12 logical CPUs), 30 GiB RAM, Python 3.12.3. Measurements are single cold `SnapshotStore.summary()` runs and are indicative rather than performance budgets.
+## Self-contained verification
 
-| Repository | Shape | Parsed files | Definitions | Parse errors | Suggested starts | Time | Peak RSS |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Bundled order example | Small cross-file API/service/repository | 5 | 6 | 0 | 3 | 0.009 s | 17.2 MiB |
-| Flask | WSGI framework, `src/` layout | 24 | 400 | 0 | 262 | 0.548 s | Not recorded |
-| Requests | HTTP library, `src/` layout | 20 | 268 | 0 | 146 | 0.426 s | Not recorded |
-| FastAPI | Async API framework, large package | 509 | 1,049 | 0 | 798 | 2.732 s | Not recorded |
-| Celery | Task queue and worker framework | 164 | 3,074 | 0 | 1,819 | 8.226 s | Not recorded |
+- 49 tests passed on Python 3.12.3, 3.13.15, and 3.14.7.
+- Both browser JavaScript syntax checks passed.
+- All 18 Chromium browser checks passed: source and workflow review, deep links,
+  responsive widths, bounded requests, paged search/methods, keyboard search,
+  refresh authorization, named buttons, and no reported browser exceptions.
+- Clean-wheel installation passed outside the checkout, including the CLI workflow,
+  loopback server, and bundled assets.
+- The seven pinned public-source cases passed their time and peak-memory budgets.
 
-Automated verification covers source non-execution, exact statement and call accounting, import and call binding, nested cross-file workflow structure, uncertainty, bounded queries, retained snapshots, Git changes, HTTP route restrictions, installed-wheel use, and headless browser behavior at desktop, tablet, and phone widths.
+The suite covers single-read source evidence, same-line call columns, configuration-only
+snapshots, concurrent and failed refresh, Host/token checks, HTTP response/concurrency
+bounds, namespace imports, conservative dispatch, Git baseline scope and rename handling,
+quoted filenames, edits during change review, and workflow continuation/depth limits.
 
-The [public repository corpus](ONLINE_VALIDATION.md) pins exact Flask, Requests, FastAPI, and Celery commits. It checks every selected workflow connection against original source, blocks target-package imports, and verifies that analysis leaves each checkout clean.
+## Public corpus measurements
 
-Still required for a stable public release:
+Each repository ran in an isolated process. Analysis excludes Git fetch; peak RSS covers
+the validation worker. Budgets are provisional engineering limits, not reviewer-derived
+expectations. Values are single-run observations, not statistical latency guarantees.
 
-- Three uncoached first-time reviewer sessions using the same input → branch → cross-file call → output task.
-- Django, namespace-package, and larger monorepo corpus cases.
-- Performance budgets selected from real reviewer expectations.
+| Repository | Files | Definitions | Analysis | Query sequence | Peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| flask | 24 | 400 | 0.552 s | 0.023 s | 38.8 MiB |
+| requests | 20 | 268 | 0.413 s | 0.018 s | 35.4 MiB |
+| fastapi | 509 | 1,049 | 1.963 s | 0.067 s | 87.7 MiB |
+| celery | 164 | 3,074 | 3.991 s | 0.161 s | 150.4 MiB |
+| django | 883 | 9,411 | 13.796 s | 0.545 s | 479.2 MiB |
+| opentelemetry | 91 | 955 | 1.082 s | 0.047 s | 60.1 MiB |
+| pants | 1,704 | 10,203 | 21.678 s | 0.821 s | 692.3 MiB |
+
+Targets were read as source only. No target dependencies were installed and no target
+source was imported or executed. Git working trees remained clean. See
+[the public corpus](ONLINE_VALIDATION.md) and [resource budgets](PERFORMANCE.md).
+
+## Still required before a stable release
+
+- Three uncoached first-time reviewer sessions using [the documented protocol](REVIEWER_SESSIONS.md).
+- Review and refine provisional performance expectations using those sessions.
+- A passing remote Linux/macOS matrix for the candidate; local verification covered Linux only.
+- Manual Safari, screen-reader, keyboard-only, and 200% zoom sign-off.
+
+See [the release checklist](RELEASE_CHECKLIST.md). Automated evidence checks do not prove
+runtime correctness or independently validate every possible connection in arbitrary code.

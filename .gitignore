@@ -32,4 +32,8 @@ Thumbs.db
 
 # Local validation output
 artifacts/*.json
+artifacts/*.png
 !artifacts/.gitkeep
+
+# Browser test dependencies
+node_modules/

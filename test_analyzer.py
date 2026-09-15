@@ -19,6 +19,75 @@ class AnalyzerTests(unittest.TestCase):
     def scope(self, result, name):
         return next(s for s in result['scopes'].values() if s['qualified'] == name)
 
+    def test_source_hash_and_ast_use_one_read_even_if_file_changes(self):
+        import hashlib
+        from unittest.mock import patch
+        from threadline.analyzer import read_source_bytes
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);path=root/'source.py';original=b'def value():\n    return 1\n';path.write_bytes(original)
+            def read_then_edit(target, allowed_root, *args):
+                raw=read_source_bytes(target,allowed_root,*args)
+                if target==path: path.write_bytes(b'def value():\n    return 2\n')
+                return raw
+            with patch('threadline.analyzer.read_source_bytes',side_effect=read_then_edit): result=analyze(root)
+            self.assertEqual(result['files']['source.py']['hash'],hashlib.sha256(original).hexdigest())
+            self.assertEqual(result['files']['source.py']['source'],original.decode())
+            self.assertEqual(self.scope(result,'value')['output']['returns'],['1'])
+
+    def test_file_and_ast_budgets_fail_explicitly(self):
+        from unittest.mock import patch
+        from threadline.analyzer import AnalysisLimitError, read_source_bytes
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);path=root/'large.py';path.write_text('value = 123456789\n')
+            with self.assertRaises(AnalysisLimitError):read_source_bytes(path,root,4)
+            with patch('threadline.analyzer.MAX_AST_NODES',1):
+                with self.assertRaises(AnalysisLimitError):analyze(root)
+
+    def test_namespace_packages_resolve_cross_root_calls_with_exact_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            for name, source in {'one/acme/orders/api.py':'from acme.shared.clean import clean\ndef handle(value):\n    return clean(value)\n','two/acme/shared/clean.py':'def clean(value):\n    return value.strip()\n'}.items():
+                path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(source)
+            result=analyze(root,source_roots=['one','two'])
+            call=self.scope(result,'handle')['flow'][0]['calls'][0]
+            self.assertEqual(call['status'],'supported')
+            self.assertEqual(result['scopes'][call['targets'][0]]['file'],'two/acme/shared/clean.py')
+            self.assertEqual(call['span']['hash'],result['files']['one/acme/orders/api.py']['hash'])
+
+    def test_decorated_routes_and_instance_dispatch_remain_possible(self):
+        _,result=self.inspect({'app.py':"""@router.get('/')
+def endpoint(value):
+    return value
+class View:
+    def get(self, request):
+        return endpoint(request)
+def handle(view: View, request):
+    return view.get(request)
+"""})
+        for name in ('View.get','handle'):
+            call=self.scope(result,name)['flow'][0]['calls'][0]
+            self.assertEqual(call['status'],'possible')
+
+    def test_import_receiver_shadowing_and_duplicate_definitions_are_not_confirmed(self):
+        _,result=self.inspect({'helper.py':'def clean(value):\n    return value\n', 'api.py':"""import helper
+def handle(helper, value):
+    return helper.clean(value)
+if flag:
+    def choose():
+        return 1
+else:
+    def choose():
+        return 2
+def run():
+    return choose()
+"""})
+        call=self.scope(result,'handle')['flow'][0]['calls'][0]
+        self.assertEqual(call['status'],'possible')
+        self.assertNotIn(self.scope(result,'handle')['id'],self.scope(result,'clean')['callers'])
+        call=self.scope(result,'run')['flow'][0]['calls'][0]
+        self.assertEqual(call['status'],'possible')
+        self.assertEqual(len(call['targets']),2)
+
     def test_payload_output_is_local_and_preserves_declared_contract(self):
         _, result = self.inspect({'api.py': """@router.post('/', response_model=Reply)
 def endpoint(payload: Request) -> Record:

@@ -48,9 +48,11 @@ Implemented:
 
 Remaining:
 
-- Dedicated Django, namespace-package, and larger monorepo corpus cases.
-- Broader rename and framework registration/dispatch fixtures.
-- Performance budgets based on reviewer expectations rather than only measurements.
+- Completed: pinned Django, split OpenTelemetry namespace packages, and Pants monorepo cases.
+- Completed: rename/quoted-path, decorated registration, shadowed import, and uncertain-dispatch regressions.
+- Continue expanding independent semantic expectations for framework dispatch as new patterns are supported.
+- Provisional time and memory budgets are enforced; refine them using real reviewer expectations.
+- Complete the human and platform gates in [the release checklist](docs/RELEASE_CHECKLIST.md).
 
 ## Public beta gate
 

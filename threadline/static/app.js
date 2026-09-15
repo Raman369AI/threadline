@@ -10,43 +10,68 @@ function scopeName(id) { return model.scopes[id]?.qualified || id; }
 function announce(message) { $('#announcement').textContent = message; }
 function icon(kind) { return ({If:'◇',Match:'◇',Assert:'◇',For:'↻',AsyncFor:'↻',While:'↻',Try:'⑂',TryStar:'⑂',Return:'↩',Raise:'↗',Break:'↗',Continue:'↻',With:'▱',AsyncWith:'▱',FunctionDef:'ƒ',AsyncFunctionDef:'ƒ',ClassDef:'C',Import:'↓',ImportFrom:'↓'})[kind] || '·'; }
 
-function navigation() {
-  const query = $('#search').value.toLowerCase().trim();
-  const filter = $('#kindFilter').value;
-  const oldOpen = new Set([...$('#navigation').querySelectorAll('details[open]')].map(d => d.dataset.file));
-  const host = $('#navigation'); host.replaceChildren();
-  const files = new Map();
-  for (const scope of Object.values(model.scopes)) {
-    if (query && !`${scope.qualified} ${scope.file} ${scope.decorators.join(' ')}`.toLowerCase().includes(query)) continue;
-    if (filter === 'callable' && ['module', 'class'].includes(scope.kind)) continue;
-    if (['class', 'module'].includes(filter) && scope.kind !== filter) continue;
-    if (filter === 'unknown' && !scope.stats.unresolved) continue;
-    if (!files.has(scope.file)) files.set(scope.file, []);
-    files.get(scope.file).push(scope);
-  }
-  if (!files.size) host.append(el('p', 'nav-empty', 'No matching definitions.'));
-  for (const [file, scopes] of [...files.entries()].sort((a,b) => a[0].localeCompare(b[0]))) {
-    const group = el('details', 'file-group'); group.dataset.file = file;
-    group.open = Boolean(query) || oldOpen.has(file) || file === model.scopes[state.scope]?.file;
-    const summary = el('summary'); summary.title = file; summary.append(el('span', 'file-name', file), el('span', 'file-count', String(scopes.length))); group.append(summary);
-    scopes.sort((a,b) => a.span.start - b.span.start);
-    for (const scope of scopes) {
-      const item = button('', 'nav-item' + (scope.id === state.scope ? ' active' : ''), () => chooseScope(scope.id));
-      item.dataset.scope = scope.id; item.title = `${scope.qualified} · ${scope.kind} · line ${scope.span.start}`;
-      item.append(el('span', 'nav-icon', scope.kind === 'class' ? 'C' : scope.kind === 'module' ? '▤' : 'ƒ'), el('span', 'name', scope.kind === 'module' ? 'Module body' : scope.qualified));
-      if (scope.stats.unresolved) item.append(el('span', 'nav-unknown', '?'));
-      group.append(item);
-    }
-    host.append(group);
+let sessionToken = '', navigationRequest = 0, selectionRequest = 0, sourceRequest = 0;
+async function api(path, params={}, options={}) {
+  const response = await fetch(path + '?' + new URLSearchParams(params), options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+async function ensureScope(id, captured=model) {
+  if (captured.scopes[id]?.flow) return captured.scopes[id];
+  const page = await api('/api/scope', {symbol:id, snapshot:captured.snapshotId, limit:20});
+  for (const [key, value] of Object.entries(page.references)) captured.scopes[key] ||= value;
+  captured.scopes[id] = {...page.scope, flow:page.flow.items, nextCursor:page.flow.nextCursor};
+  return captured.scopes[id];
+}
+function appendScopeFlow(host, scope, ancestry, depth) {
+  host.append(renderList(scope.flow, scope, ancestry, depth));
+  if (scope.nextCursor !== null) {
+    const more = button('Load more statements →', 'quiet-button', async () => {
+      const captured = model; more.disabled = true;
+      try {
+        const page = await api('/api/scope', {symbol:scope.id, snapshot:captured.snapshotId, cursor:scope.nextCursor, limit:20});
+        if (captured !== model) return;
+        for (const [key, value] of Object.entries(page.references)) captured.scopes[key] ||= value;
+        const canonical=captured.scopes[scope.id];
+        const known=new Set(canonical.flow.map(node=>node.id));
+        canonical.flow.push(...page.flow.items.filter(node=>!known.has(node.id)));canonical.nextCursor=page.flow.nextCursor;
+        scope.nextCursor=page.flow.nextCursor;
+        if(canonical.nextCursor===null&&state.scope===scope.id)$('#flow .scope-end').textContent='End of body · if control reaches here, Python returns None (or the generator terminates).';
+        const extra=el('div'); more.replaceWith(extra);
+        appendScopeFlow(extra, {...scope, flow:page.flow.items}, ancestry, depth);
+      } catch(error) {announce(error.message); more.disabled=false;}
+    });
+    host.append(more);
   }
 }
+async function navigation(cursor=0) {
+  const request=++navigationRequest, captured=model;
+  try {
+    const data=await api('/api/symbols', {q:$('#search').value, kind:$('#kindFilter').value, snapshot:captured.snapshotId, cursor, limit:50});
+    if(request!==navigationRequest || captured!==model) return;
+    const host=$('#navigation'); host.replaceChildren();
+    for(const scope of data.symbols.items) {
+      captured.scopes[scope.id] ||= scope;
+      const item=button(scope.qualified, 'nav-item'+(scope.id===state.scope?' active':''),()=>chooseScope(scope.id));
+      item.dataset.scope=scope.id; item.title=scope.file+':'+scope.line;
+      item.append(el('small','', ' · '+scope.file+':'+scope.line));host.append(item);
+    }
+    if(!data.symbols.total) host.append(el('p','nav-empty','No matching definitions.'));
+    host.append(el('p','source-peek', `${data.symbols.total} matching definitions`));
+    if(cursor) host.append(button('Previous definitions','quiet-button',()=>navigation(Math.max(0,cursor-50))));
+    if(data.symbols.nextCursor!==null) host.append(button('More definitions →','quiet-button',()=>navigation(data.symbols.nextCursor)));
+  } catch(error) {if(request===navigationRequest) announce(error.message);}
+}
 
-function chooseScope(id, opts={}) {
-  if (!model.scopes[id]) return;
+async function chooseScope(id, opts={}) {
+  const request=++selectionRequest, captured=model;
+  try {await ensureScope(id, captured);} catch(error) {announce(error.message); return false;}
+  if(request!==selectionRequest || captured!==model) return false;
   if (!opts.keepStack) state.stack = [];
   state.scope = id; state.focus = null; state.sourceWhole = false; state.selectedElement = null;
   const scope = model.scopes[id];
-  $('#scopePath').textContent = scope.file + (scope.parent && model.scopes[scope.parent]?.kind !== 'module' ? ' / ' + scopeName(scope.parent) : '');
+  $('#scopePath').textContent = scope.file + (scope.parent && model.scopes[scope.parent] && model.scopes[scope.parent].kind !== 'module' ? ' / ' + scopeName(scope.parent) : '');
   $('#scopeTitle').textContent = scope.kind === 'module' ? 'Module body' : scope.name.replace(/^_+/, '').replaceAll('_', ' ').replace(/^./, c => c.toUpperCase());
   $('#methodName').textContent = scope.qualified;
   $('.method-details').open = false;
@@ -59,28 +84,31 @@ function chooseScope(id, opts={}) {
     strip.append(el('span','', '↳ From ' + scopeName(frame.invoker || frame.scope) + ' · return → ' + frame.destination), button('Back to caller', 'quiet-button', returnToCaller));
     $('#flow').append(strip);
   }
-  $('#flow').append(renderList(scope.flow, scope, [scope.id], 0));
-  $('#flow').append(el('div', 'scope-end', ['module','class'].includes(scope.kind) ? 'End of body · definitions remain individually accessible.' : 'End of body · if control reaches here, Python returns None (or the generator terminates).'));
-  renderPayloads(); navigation(); showSource(scope.span, scope.qualified, 'Original source for this scope. Select an operation to focus its evidence.');
+  appendScopeFlow($('#flow'), scope, [scope.id], 0);
+  $('#flow').append(el('div', 'scope-end', ['module','class'].includes(scope.kind) ? 'End of body · definitions remain individually accessible.' : (scope.nextCursor!==null?'More statements are available using Load more statements above.':'End of body · if control reaches here, Python returns None (or the generator terminates).')));
+  renderPayloads(); navigation(); await showSource(scope.span, scope.qualified, 'Original source for this scope. Select an operation to focus its evidence.');
+  if(request!==selectionRequest || captured!==model)return false;
   $('.review').scrollTop = 0;
   const activeNav = $('#navigation .nav-item.active');
   if (activeNav) $('#navigation').scrollTop += activeNav.getBoundingClientRect().top - $('#navigation').getBoundingClientRect().top - 100;
   history.replaceState(null, '', '#' + encodeURIComponent(id));
   if (typeof syncWorkflowMethod === 'function') syncWorkflowMethod(id);
+  return true;
 }
 
-function enterScope(id, call) {
+async function enterScope(id, call) {
   const frame = { scope: state.scope, invoker: call.scope || state.scope, scroll: $('.review').scrollTop, dom: [...$('#flow').childNodes], focus: state.focus, destination: call.destination, selectedElement: state.selectedElement };
   state.stack.push(frame);
-  chooseScope(id, {keepStack:true});
+  await chooseScope(id, {keepStack:true});
 }
-function returnToCaller() {
+async function returnToCaller() {
   const frame = state.stack.pop(); if (!frame) return;
-  chooseScope(frame.scope, {keepStack:true});
+  if(!await chooseScope(frame.scope, {keepStack:true}))return;
   state.focus = frame.focus; state.selectedElement = frame.selectedElement;
   $('#flow').replaceChildren(...frame.dom); renderPayloads();
   $('.review').scrollTop = frame.scroll;
-  if (frame.focus) showSource(frame.focus.span, frame.focus.title, frame.focus.details);
+  if (frame.focus) await showSource(frame.focus.span, frame.focus.title, frame.focus.details);
+  frame.selectedElement?.querySelector('button')?.focus({preventScroll:true});
 }
 
 function renderList(nodes, scope, ancestry, depth) {
@@ -155,14 +183,22 @@ function renderCall(call, scope, ancestry, depth) {
   const host = el('div','call'); host.dataset.call = call.id;
   const row = el('div','call-row'); row.append(el('span','call-title',call.name + (call.execution?.startsWith('deferred') ? ' · deferred' : call.execution?.startsWith('background') ? ' · background' : call.awaited ? ' · await' : '') + (call.conditional ? ' · conditional/deferred' : '')), el('span','status '+call.status,call.status === 'supported' ? 'source-linked' : call.status));
   const contents = el('div'); contents.hidden = true;
-  const toggle = button(call.targets.length ? 'Open call ↳' : 'Inspect ?', 'call-open', () => {
+  const toggle = button(call.targets.length ? 'Open call ↳' : 'Inspect ?', 'call-open', async () => {
     const opening = contents.hidden;
-    if (opening && !contents.childNodes.length) fillCall(contents,call,scope,ancestry,depth);
+    if (opening && !contents.childNodes.length) {
+      toggle.disabled=true;
+      try {await fillCall(contents,call,scope,ancestry,depth);}
+      catch(error){contents.replaceChildren();announce(error.message);return;}
+      finally {toggle.disabled=false;}
+    }
     contents.hidden = !opening; toggle.textContent = opening ? 'Close ↥' : call.targets.length ? 'Open call ↳' : 'Inspect ?'; toggle.setAttribute('aria-expanded', String(opening));
 
   }); toggle.setAttribute('aria-expanded','false'); toggle.dataset.closedLabel = call.targets.length ? 'Open call ↳' : 'Inspect ?'; row.append(toggle); host.append(row,contents); return host;
 }
-function fillCall(host,call,scope,ancestry,depth) {
+async function fillCall(host,call,scope,ancestry,depth) {
+  const captured=model;
+  for(const id of call.targets) await ensureScope(id,captured);
+  if(captured!==model) return;
   const info = el('div','call-detail');
   if (call.execution && call.execution !== 'ordinary call') host.append(el('div','call-execution',call.execution));
   info.append(document.createTextNode(call.reason + '. '),button('Call-site evidence','scope-jump',()=>showSource(call.span,call.expression,call.reason + '\nReturn destination: ' + call.destination)));
@@ -195,7 +231,7 @@ function fillCall(host,call,scope,ancestry,depth) {
       box.append(button('Inspect class definition','scope-jump',()=>enterScope(targetId,call)));
     } else {
       header.append(button('Source','quiet-button',()=>showSource(target.span,target.qualified,'Original called function source.')));
-      box.append(renderList(target.flow,target,[...ancestry,targetId],depth+1));
+      appendScopeFlow(box,target,[...ancestry,targetId],depth+1);
     }
     box.append(el('div','resume',(call.execution?.startsWith('deferred') ? '↩ Call produces a deferred object → ' : '↩ On normal return → ') + call.destination + ' · caller resumes at ' + call.span.file + ':' + call.span.end + '. Exceptions follow the enclosing handler / propagate.'));
     host.append(box);
@@ -246,64 +282,92 @@ function syntax(line) {
   while((match=regex.exec(line))) { out+=escaped(line.slice(end,match.index)); const token=match[0],type=token.startsWith('#')?'comment':/^["']/.test(token)?'str':/^\d/.test(token)?'num':'key'; out+=`<span class="tok-${type}">${escaped(token)}</span>`; end=match.index+token.length; }
   return out+escaped(line.slice(end));
 }
-function showSource(span,title,details='',preserveScroll=false) {
-  state.focus = {span,title,details};
-  const file = model.files[span.file]; if(!file) return;
-  $('#sourceFile').textContent = span.file;
-  $('#sourceContext').replaceChildren(el('strong','',title),el('div','',`Lines ${span.start}–${span.end}`));
-  const lines=file.source.split('\n');
-  const enclosing=Object.values(model.scopes).filter(s=>s.file===span.file && s.span.start<=span.start && s.span.end>=span.end).sort((a,b)=>(a.span.end-a.span.start)-(b.span.end-b.span.start))[0];
-  const start=state.sourceWhole?1:Math.max(1,Math.min(span.start-4,enclosing?.span.start || span.start));
-  const end=state.sourceWhole?lines.length:Math.min(lines.length,Math.max(span.end+5,Math.min(enclosing?.span.end || span.end,span.end+70)));
-  const code=$('#sourceCode'), oldScroll=code.scrollTop; code.replaceChildren(); code.classList.toggle('wrap-code',state.wrap);
-  for(let number=start;number<=end;number++) {
-    const line=el('div','code-line'+(number>=span.start && number<=span.end?(span.end-span.start>12?' scope-focus':' focus'):''));
-    line.dataset.line=String(number);
-    const content=el('span','line-content'); content.innerHTML=syntax(lines[number-1]) || ' ';
-    line.append(el('span','line-number',String(number)),content); code.append(line);
-  }
-  if(preserveScroll) code.scrollTop=oldScroll;
-  else { const selectedLine=code.querySelector('[data-line="'+span.start+'"]');code.scrollTop=selectedLine?Math.max(0,selectedLine.getBoundingClientRect().top-code.getBoundingClientRect().top+code.scrollTop-46):0; }
-  const detailHost=$('#sourceDetails'); detailHost.replaceChildren();
-  for(const line of details.split('\n').filter(Boolean)) detailHost.append(el('div','',line));
-  const buttonRow=el('div','source-peek');
-  buttonRow.append(button(state.sourceWhole?'Show focused source':'Show entire file','scope-jump',()=>{state.sourceWhole=!state.sourceWhole;showSource(span,title,details);}),document.createTextNode(' · '),button('Copy exact selection','scope-jump',async()=>{try{await navigator.clipboard.writeText(lines.slice(span.start-1,span.end).join('\n'));announce('Source copied');}catch{announce('Clipboard unavailable; select and copy the source.');}}));
-  buttonRow.append(document.createTextNode(' · '),button(state.wrap?'Unwrap lines':'Wrap lines','scope-jump',()=>{state.wrap=!state.wrap;showSource(span,title,details);}));
-  detailHost.append(buttonRow);
-  $('#snapshotLabel').textContent='Snapshot '+file.hash.slice(0,8);
+async function showSource(span,title,details='',preserveScroll=false,pageStart=null) {
+  const request=++sourceRequest, captured=model;
+  state.focus={span,title,details};
+  const start=pageStart || (state.sourceWhole?1:Math.max(1,span.start-4));
+  try {
+    const result=await api('/api/source',{snapshot:captured.snapshotId,file:span.file,start});
+    if(request!==sourceRequest || captured!==model) return;
+    $('#sourceFile').textContent=span.file;
+    $('#sourceContext').replaceChildren(el('strong','',title),el('div','',`Evidence lines ${span.start}–${span.end} · showing ${result.span.start}–${result.span.end}`));
+    const lines=result.source.split('\n'), code=$('#sourceCode'), oldScroll=code.scrollTop;
+    code.replaceChildren(); code.classList.toggle('wrap-code',state.wrap);
+    lines.forEach((value,index)=>{
+      const number=start+index;
+      const line=el('div','code-line'+(number>=span.start&&number<=span.end?' focus':''));line.dataset.line=String(number);
+      const content=el('span','line-content');content.innerHTML=syntax(value)||' ';
+      line.append(el('span','line-number',String(number)),content);code.append(line);
+    });
+    code.scrollTop=preserveScroll?oldScroll:0;
+    const host=$('#sourceDetails');host.replaceChildren();
+    for(const line of details.split('\n').filter(Boolean))host.append(el('div','',line));
+    const controls=el('div','source-peek');
+    if(start>1)controls.append(button('Previous source lines','scope-jump',()=>showSource(span,title,details,false,Math.max(1,start-80))));
+    if(result.span.end<result.totalLines) controls.append(button('Next source lines →','scope-jump',()=>showSource(span,title,details,false,result.span.end+1)));
+    controls.append(button('Start of file','scope-jump',()=>showSource(span,title,details,false,1)));
+    const entireSelection=span.start>=start&&span.end<=result.span.end;
+    controls.append(button(entireSelection?'Copy exact selection':'Copy visible source','scope-jump',async()=>{
+      try {await navigator.clipboard.writeText(entireSelection?lines.slice(span.start-start,span.end-start+1).join('\n'):result.source);announce('Source copied');}
+      catch {announce('Clipboard unavailable; select and copy the source.');}
+    }));
+    controls.append(button(state.wrap?'Unwrap lines':'Wrap lines','scope-jump',()=>{state.wrap=!state.wrap;showSource(span,title,details,true,start);}));
+    host.append(controls);$('#snapshotLabel').textContent='Snapshot '+captured.snapshotId.slice(0,8);
+  } catch(error) {if(request===sourceRequest){$('#sourceCode').replaceChildren(el('p','error',error.message));announce(error.message);}}
 }
 function coverage() {
   const c=model.coverage, host=$('#coveragePanel');host.replaceChildren(el('h2','','Source coverage'),el('p','',model.root));
   const grid=el('div','coverage-grid');
   for(const [value,label] of [[`${format(c.files)}/${format(c.discovered)}`,'Python files parsed'],[format(c.definitions),'functions, methods & lambdas'],[`${format(c.representedStatements)}/${format(c.statements)}`,'statements represented'],[`${format(c.representedCalls)}/${format(c.calls)}`,'explicit call sites represented']]) {const stat=el('div','coverage-stat');stat.append(el('strong','',value),el('span','',label));grid.append(stat);}host.append(grid);
   host.append(el('p','',Object.entries(c.statuses).map(([k,v])=>`${format(v)} ${k}`).join(' · ')));
-  const types=el('p','',Object.entries(c.kinds).map(([k,v])=>`${format(v)} ${k}`).join(' · '));host.append(types);
   for(const limit of model.limits)host.append(el('p','',limit));
-  for(const [label,rows] of [['Excluded paths',model.excluded.map(x=>x.path+' — '+x.reason)],['Parse errors',model.errors.map(x=>x.file+' — '+x.message)],['Unmodeled call syntax',c.unmodeledCalls.map(x=>x.span.file+':'+x.span.start+' '+x.expression)]]) {const d=el('details'),s=el('summary','',`${label} (${rows.length})`),list=el('ul');rows.forEach(row=>list.append(el('li','',row)));d.append(s,list);host.append(d);}
+  for(const [label,category] of [['Excluded paths','excluded'],['Parse errors','errors'],['Unmodeled call syntax','unmodeledCalls'],['Changed methods','changedMethods'],['Previous methods','previousMethods'],['Known callers','knownCallers'],['Possible impact','possibleImpact']]) {
+    const section=el('details');section.append(el('summary','',label));
+    const content=el('div');section.append(content);host.append(section);
+    section.addEventListener('toggle',()=>{if(section.open&&!content.childNodes.length)loadDiagnostics(content,category);});
+  }
+}
+async function loadDiagnostics(host,category,cursor=0) {
+  const captured=model;
+  try {
+    const result=await api('/api/diagnostics',{snapshot:captured.snapshotId,category,cursor,limit:25});
+    if(captured!==model)return;
+    host.replaceChildren(el('p','',result.rows.total+' records'));
+    for(const row of result.rows.items) {
+      const label=[row.name,row.file||row.path||row.span?.file,row.reason||row.message||row.expression].filter(Boolean).join(' · ');
+      if(row.id&&category!=='previousMethods')host.append(button(label,'scope-jump',()=>chooseScope(row.id)));
+      else if(row.id&&model.changes?.baseSnapshotId){const link=el('a','scope-jump',label);link.href='?snapshot='+encodeURIComponent(model.changes.baseSnapshotId)+'#'+encodeURIComponent(row.id);host.append(link);}
+      else host.append(el('p','',label));
+    }
+    if(cursor)host.append(button('Previous records','quiet-button',()=>loadDiagnostics(host,category,Math.max(0,cursor-25))));
+    if(result.rows.nextCursor!==null)host.append(button('More records →','quiet-button',()=>loadDiagnostics(host,category,result.rows.nextCursor)));
+  }catch(error){host.replaceChildren(el('p','error',error.message));}
 }
 async function load(refresh=false) {
   const b=$('#refreshButton'); b.disabled=true;b.textContent=refresh?'Reading source…':'Indexing…';
   try {
     const requestedSnapshot=new URLSearchParams(location.search).get('snapshot');
-    const indexUrl=!refresh&&requestedSnapshot?'/api/index?snapshot='+encodeURIComponent(requestedSnapshot):'/api/index';
-    const response=await fetch(refresh?'/api/reindex':indexUrl,{method:refresh?'POST':'GET'});if(!response.ok)throw new Error(`HTTP ${response.status}`);
-    model=await response.json();
+    if(!sessionToken)sessionToken=(await api('/api/session')).token;
+    const summary=refresh?await api('/api/reindex',{}, {method:'POST',headers:{'X-Threadline-Token':sessionToken}}):await api('/api/summary', requestedSnapshot?{snapshot:requestedSnapshot}:{});
+    model={...summary,scopes:{},files:{},generatedWorkflows:{}};
+    ++selectionRequest; ++sourceRequest;
+    for(const scope of summary.entrypoints.items)model.scopes[scope.id]=scope;
     if(refresh && requestedSnapshot) history.replaceState(null,'',location.pathname+location.hash);
     $('#projectName').textContent=model.project;$('#fileCount').textContent=model.coverage.files+' files';
     coverage();
     let preferred=state.scope || decodeURIComponent(location.hash.slice(1));
-    if(!model.scopes[preferred]) preferred=model.entrypoints?.find(e=>model.scopes[e.id]?.kind!=='module')?.id || Object.values(model.scopes).find(s=>['function','method'].includes(s.kind))?.id || Object.keys(model.scopes)[0];
-    if(preferred) chooseScope(preferred);else $('#flow').replaceChildren(el('p','error','No readable Python source. Open Coverage to inspect parse errors and excluded files.'));
-    if (typeof initializeWorkflows === 'function') initializeWorkflows(refresh);
+    if(!preferred) preferred=summary.entrypoints.items[0]?.id;
+    if(preferred) {if(!await chooseScope(preferred)) {preferred=summary.entrypoints.items[0]?.id;if(preferred)await chooseScope(preferred);}}else $('#flow').replaceChildren(el('p','error','No readable Python source. Open Coverage to inspect parse errors and excluded files.'));
+    if (typeof initializeWorkflows === 'function') await initializeWorkflows(refresh);
     announce(refresh?'Source refreshed. Flow and source refer to the same snapshot.':'Repository ready.');
   }catch(error){$('#flow').replaceChildren(el('p','error','Unable to load the source index: '+error.message));}
   finally{b.disabled=false;b.textContent='↻ Refresh source';}
 }
-$('#search').addEventListener('input',navigation);$('#kindFilter').addEventListener('change',navigation);
-$('#coverageButton').addEventListener('click',()=>{const h=$('#coveragePanel');h.hidden=!h.hidden;$('#coverageButton').setAttribute('aria-expanded',String(!h.hidden));});
+let searchTimer; $('#search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>navigation(),150);});$('#kindFilter').addEventListener('change',()=>navigation());
+$('#coverageButton').addEventListener('click',()=>{const h=$('#coveragePanel');h.hidden=!h.hidden;$('#coverageButton').setAttribute('aria-expanded',String(!h.hidden));if(!h.hidden)h.focus();});
 $('#refreshButton').addEventListener('click',()=>load(true));
 $('#expandBranches').addEventListener('click',()=>{$('#flow').querySelectorAll('details.branch').forEach(d=>d.open=true);});
 $('#collapseCalls').addEventListener('click',()=>{$('#flow').querySelectorAll('.call').forEach(call=>{const content=call.children[1];content.hidden=true;const b=call.querySelector(':scope > .call-row > .call-open');b.textContent=b.dataset.closedLabel;b.setAttribute('aria-expanded','false');});});
 $('#clearFocus').addEventListener('click',()=>{const s=model.scopes[state.scope];showSource(s.span,s.qualified,'Original source for the selected method.');});
-document.addEventListener('keydown',event=>{if(event.key==='/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){event.preventDefault();$('#search').focus();}if(event.key==='Escape'){$('#coveragePanel').hidden=true;$('#coverageButton').setAttribute('aria-expanded','false');}});
+document.addEventListener('keydown',event=>{if(event.key==='/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){event.preventDefault();setWorkflowMode('methods');$('#search').focus();}if(event.key==='Escape'){if(!$('#coveragePanel').hidden)$('#coverageButton').focus();$('#coveragePanel').hidden=true;$('#coverageButton').setAttribute('aria-expanded','false');}});
 load();

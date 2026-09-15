@@ -19,7 +19,7 @@ Repository = "https://github.com/Raman369AI/threadline"
 Issues = "https://github.com/Raman369AI/threadline/issues"
 
 [project.optional-dependencies]
-browser-test = ["websocket-client>=1.7,<2"]
+browser-test = ["websocket-client>=1.7,<2", "selenium>=4.35,<5"]
 
 [project.scripts]
 threadline = "threadline.cli:main"

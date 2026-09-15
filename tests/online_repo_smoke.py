@@ -45,6 +45,7 @@ def git(root: Path, *args: str, capture: bool = True) -> str:
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
         env=env,
+        timeout=120,
     )
     return result.stdout.strip() if capture else ""
 
@@ -91,12 +92,17 @@ def validate_repository(spec: dict[str, Any], target: Path) -> dict[str, Any]:
             name = str(args[0])
             if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden):
                 attempted_target_imports.append(name)
+                raise ValidationFailure(f"Target import blocked: {name}")
 
     sys.addaudithook(audit)
     before = git(target, "status", "--porcelain", "--untracked-files=all")
     started = time.perf_counter()
-    store = SnapshotStore(target, exclude=spec.get("exclude"))
+    store = SnapshotStore(target, source_roots=spec.get("sourceRoots"), exclude=spec.get("exclude"))
     summary = store.summary(limit=100)
+    analysis_seconds = time.perf_counter() - started
+    require(analysis_seconds <= spec.get('budgets', {}).get('analysisSeconds', 60),
+            f'analysis exceeded budget: {analysis_seconds:.3f}s')
+    query_started = time.perf_counter()
     snapshot = summary["snapshotId"]
     coverage = summary["coverage"]
 
@@ -122,6 +128,12 @@ def validate_repository(spec: dict[str, Any], target: Path) -> dict[str, Any]:
             "method input/output payload is absent")
     require(method["operations"]["total"] > 0, "selected method has no visible operations")
     source = store.get_source(snapshot_id=snapshot, evidence=symbol["evidenceId"])
+    from threadline.analyzer import Analyzer
+    calls = [call for operation in Analyzer.walk_flow(store.model(snapshot)['scopes'][symbol['id']]['flow']) for call in operation['calls']]
+    for expectation in spec.get('expectedCalls', []):
+        matches = [call for call in calls if call['name'] == expectation['name']]
+        require(bool(matches) and all(call['status'] == expectation['status'] for call in matches),
+                f"Incorrect call certainty for {expectation['name']}; expected {expectation['status']}")
     require(bool(source["source"].strip()), "selected method evidence returned no source")
     require(source["evidenceId"] == symbol["evidenceId"], "source lost its evidence identity")
     require(source["requestedSpan"]["file"] == expected["file"], "source evidence points to another file")
@@ -148,6 +160,9 @@ def validate_repository(spec: dict[str, Any], target: Path) -> dict[str, Any]:
     require(set(spec["requiredStatuses"]) <= statuses,
             f"workflow did not expose expected uncertainty states: {spec['requiredStatuses']}")
 
+    query_seconds = time.perf_counter() - query_started
+    require(query_seconds <= spec.get('budgets', {}).get('querySeconds', 3),
+            f'query sequence exceeded budget: {query_seconds:.3f}s')
     evidence_checks = 1
     for link in links:
         require(link.get("evidence"), "workflow connection has no source evidence")
@@ -175,12 +190,19 @@ def validate_repository(spec: dict[str, Any], target: Path) -> dict[str, Any]:
     after = git(target, "status", "--porcelain", "--untracked-files=all")
     require(before == after == "", "analysis modified the target repository")
 
+    import resource
+    peak_rss_mib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024 if sys.platform == 'darwin' else 1024)
+    require(peak_rss_mib <= spec.get('budgets', {}).get('peakRssMiB', 2048),
+            f'peak RSS exceeded budget: {peak_rss_mib:.1f} MiB')
     return {
+        "peakRssMiB": round(peak_rss_mib, 1),
         "name": spec["name"],
         "url": spec["url"],
         "revision": spec["revision"],
         "snapshotId": snapshot,
         "elapsedSeconds": round(time.perf_counter() - started, 3),
+        "analysisSeconds": round(analysis_seconds, 3),
+        "querySeconds": round(query_seconds, 3),
         "parsedFiles": coverage["files"],
         "definitions": coverage["definitions"],
         "statements": coverage["statements"],
@@ -207,7 +229,12 @@ def main() -> int:
     parser.add_argument("--cache-dir", type=Path, help="reuse pinned Git checkouts")
     parser.add_argument("--offline", action="store_true", help="do not fetch missing revisions")
     parser.add_argument("--report", type=Path, help="write the JSON result to this path")
+    parser.add_argument('--worker-spec', help=argparse.SUPPRESS)
+    parser.add_argument('--worker-target', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.worker_spec:
+        print(json.dumps(validate_repository(json.loads(args.worker_spec), args.worker_target)))
+        return 0
 
     manifest = json.loads(args.manifest.read_text())
     selected = set(args.repo or ())
@@ -231,7 +258,11 @@ def main() -> int:
             target = cache / spec["name"]
             try:
                 checkout(spec, target, args.offline)
-                result = validate_repository(spec, target)
+                worker = subprocess.run([sys.executable, str(Path(__file__).resolve()),
+                                         '--worker-spec', json.dumps(spec), '--worker-target', str(target)],
+                                        text=True, capture_output=True, timeout=120)
+                require(worker.returncode == 0, worker.stderr.strip()[-4000:] or 'Validation worker failed')
+                result = json.loads(worker.stdout)
                 print(f"PASS {spec['name']}: {result['parsedFiles']} files, "
                       f"{result['workflowStages']} workflow stages, "
                       f"{result['evidenceChecks']} evidence checks")

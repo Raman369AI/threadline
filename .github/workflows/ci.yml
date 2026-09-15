@@ -2,20 +2,56 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   test:
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
-        python: ['3.12', '3.13']
-    runs-on: ubuntu-latest
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.12', '3.13', '3.14']
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
       - run: python -m pip install '.[browser-test]'
+      - run: npm ci --prefix tests/browser-tools --ignore-scripts --no-audit --no-fund
       - run: python -m unittest discover -v
       - run: node --check threadline/static/app.js
       - run: node --check threadline/static/workflow.js
       - run: python tests/browser_smoke.py
+        if: runner.os == 'Linux'
+      - name: Chrome accessibility and keyboard checks
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+        run: python tests/browser_accessibility.py --browser chrome --report artifacts/accessibility-chrome.json
+      - name: Enable native Safari automation
+        if: runner.os == 'macOS' && matrix.python == '3.12'
+        run: |
+          sudo safaridriver --enable
+          defaults write NSGlobalDomain AppleKeyboardUIMode -int 3
+          defaults write com.apple.Safari WebKitTabToLinksPreferenceKey -bool true
+      - name: Native Safari accessibility and keyboard checks
+        if: runner.os == 'macOS' && matrix.python == '3.12'
+        run: python tests/browser_accessibility.py --browser safari --report artifacts/accessibility-safari.json
+      - uses: actions/upload-artifact@v6
+        if: always() && matrix.python == '3.12'
+        with:
+          name: accessibility-${{ matrix.os }}
+          path: artifacts/accessibility-*
+          if-no-files-found: warn
       - run: python -m pip wheel . --no-deps -w dist
+      - run: python tests/release_smoke.py dist/*.whl
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.python }}
+          path: dist/*.whl
+  corpus:
+    uses: ./.github/workflows/online-repositories.yml

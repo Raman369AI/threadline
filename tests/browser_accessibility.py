@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 from threadline.server import make_server
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -59,7 +60,7 @@ def main():
             def check(name, condition):
                 checks[name]=bool(condition)
 
-            def key(value): driver.switch_to.active_element.send_keys(value)
+            def key(value): ActionChains(driver).send_keys(value).perform()
 
             def tab_to(selector, maximum=150):
                 trail=[]
@@ -67,7 +68,9 @@ def main():
                     focused=driver.execute_script('const e=document.activeElement;return {matches:e.matches(arguments[0]),tag:e.tagName,id:e.id,text:e.textContent.slice(0,50)}',selector)
                     if focused['matches']: return
                     trail.append(focused)
-                    key(Keys.ALT+Keys.TAB+Keys.NULL if args.browser=='safari' else Keys.TAB)
+                    if args.browser=='safari':
+                        ActionChains(driver).key_down(Keys.ALT).send_keys(Keys.TAB).key_up(Keys.ALT).perform()
+                    else: key(Keys.TAB)
                 raise AssertionError('Keyboard could not reach '+selector+'; recent focus: '+json.dumps(trail[-8:]))
 
             def audit(name):

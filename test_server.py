@@ -26,6 +26,14 @@ class ServerTests(unittest.TestCase):
         self.worker.join()
         self.temp.cleanup()
 
+    def test_loopback_startup_does_not_require_dns(self):
+        with patch('socket.getfqdn',side_effect=AssertionError('Unexpected DNS lookup')):
+            server=make_server(self.root,port=0)
+        try:
+            self.assertEqual(server.server_name,'localhost')
+            self.assertGreater(server.server_port,0)
+        finally: server.server_close()
+
     def refresh_request(self):
         with urlopen(self.url+'/api/session') as response: token=json.load(response)['token']
         return Request(self.url+'/api/reindex',method='POST',headers={'X-Threadline-Token':token})

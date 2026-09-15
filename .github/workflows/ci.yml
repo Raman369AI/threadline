@@ -37,7 +37,6 @@ jobs:
         run: |
           sudo safaridriver --enable
           defaults write NSGlobalDomain AppleKeyboardUIMode -int 3
-          defaults write com.apple.Safari WebKitTabToLinksPreferenceKey -bool true
       - name: Native Safari accessibility and keyboard checks
         if: runner.os == 'macOS' && matrix.python == '3.12'
         run: python tests/browser_accessibility.py --browser safari --report artifacts/accessibility-safari.json

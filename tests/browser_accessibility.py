@@ -61,11 +61,14 @@ def main():
 
             def key(value): driver.switch_to.active_element.send_keys(value)
 
-            def tab_to(selector, maximum=300):
+            def tab_to(selector, maximum=150):
+                trail=[]
                 for _ in range(maximum):
-                    if driver.execute_script('return document.activeElement.matches(arguments[0])',selector): return
-                    key(Keys.TAB)
-                raise AssertionError('Keyboard could not reach '+selector)
+                    focused=driver.execute_script('const e=document.activeElement;return {matches:e.matches(arguments[0]),tag:e.tagName,id:e.id,text:e.textContent.slice(0,50)}',selector)
+                    if focused['matches']: return
+                    trail.append(focused)
+                    key(Keys.ALT+Keys.TAB+Keys.NULL if args.browser=='safari' else Keys.TAB)
+                raise AssertionError('Keyboard could not reach '+selector+'; recent focus: '+json.dumps(trail[-8:]))
 
             def audit(name):
                 driver.execute_script(axe.read_text())
@@ -120,11 +123,11 @@ def main():
                 check('accessibility_landmarks',{'main','complementary'}<=roles)
                 check('accessible_source_and_search',{'Original Python source','Find a method or file'}<=names)
                 check('live_announcements',any(any(prop['name']=='live' and prop['value'].get('value')=='polite' for prop in node.get('properties',[])) for node in visible))
-                # Browser layout zoom, rather than a screenshot-only scale factor.
-                driver.execute_script("document.documentElement.style.zoom='2'")
-                check('zoom_200_percent',js('document.documentElement.scrollWidth<=innerWidth'))
-                audit('zoom_200_percent')
-                driver.execute_script("document.documentElement.style.zoom=''")
+            # Browser layout zoom, rather than a screenshot-only scale factor.
+            driver.execute_script("document.documentElement.style.zoom='2'")
+            check('zoom_200_percent',js('document.documentElement.scrollWidth<=innerWidth'))
+            audit('zoom_200_percent')
+            driver.execute_script("document.documentElement.style.zoom=''")
             check('source_view_remains_usable',js("!document.querySelector('#flow .error')"))
             report={'browser':driver.capabilities.get('browserName'),'version':driver.capabilities.get('browserVersion'),
                     'platform':sys.platform,'viewports':viewports,'checks':checks,'audits':audits,'passed':all(checks.values()),

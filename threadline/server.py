@@ -7,6 +7,7 @@ import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
+from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit
 
 from .service import SnapshotStore, ThreadlineError
@@ -22,6 +23,12 @@ class BoundedHTTPServer(ThreadingHTTPServer):
     def __init__(self, *args):
         self.slots = threading.BoundedSemaphore(8)
         super().__init__(*args)
+
+    def server_bind(self):
+        # This loopback-only service needs no reverse DNS lookup at startup.
+        TCPServer.server_bind(self)
+        self.server_name = 'localhost'
+        self.server_port = self.server_address[1]
 
     def process_request(self, request, client_address):
         if not self.slots.acquire(blocking=False):

@@ -6,7 +6,7 @@ Threadline is currently an alpha. Security fixes are applied to the latest sourc
 
 ## Reporting a vulnerability
 
-Please use the repository host's private vulnerability-reporting feature when available. If it is unavailable, contact the maintainer privately before opening a public issue. Include the affected version, reproduction steps, impact, and any suggested mitigation.
+Report vulnerabilities through [GitHub’s private reporting form](https://github.com/Raman369AI/threadline/security/advisories/new). Private vulnerability reporting is enabled for this repository. Include the affected version, reproduction steps, impact, and any suggested mitigation.
 
 Do not include secrets or private repository source in a report.
 

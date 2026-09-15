@@ -1,17 +1,21 @@
 # Validation record
 
-Validated on 2026-09-14 (America/Chicago), Linux x86_64. The working candidate remains
-an alpha pending the human and platform release gates.
+Validated on 2026-09-14 (America/Chicago). [The complete CI run](https://github.com/Raman369AI/threadline/actions/runs/34922515651) passed for application/test commit `8c9d088` (see the run for the full SHA).
+The maintainer owns the three first-time reviewer sessions; the remaining engineering gates are complete.
 
 ## Self-contained verification
 
-- 49 tests passed on Python 3.12.3, 3.13.15, and 3.14.7.
+- 51 tests passed in each Linux/macOS × Python 3.12/3.13/3.14 matrix job.
 - Both browser JavaScript syntax checks passed.
 - All 18 Chromium browser checks passed: source and workflow review, deep links,
   responsive widths, bounded requests, paged search/methods, keyboard search,
   refresh authorization, named buttons, and no reported browser exceptions.
-- Clean-wheel installation passed outside the checkout, including the CLI workflow,
-  loopback server, and bundled assets.
+- Clean-wheel installation passed outside the checkout in all six matrix jobs, including
+  the CLI workflow, loopback server, and bundled assets.
+- Chrome passed 20 accessibility checks; native Safari 26.6.2 passed 17. Both reported
+  zero axe violations across the six audited states. See [accessibility validation](ACCESSIBILITY.md).
+- macOS temporary-directory alias handling and DNS-independent loopback startup have
+  focused regression coverage. Private vulnerability reporting is enabled.
 - The seven pinned public-source cases passed their time and peak-memory budgets.
 
 The suite covers single-read source evidence, same-line call columns, configuration-only
@@ -39,12 +43,15 @@ Targets were read as source only. No target dependencies were installed and no t
 source was imported or executed. Git working trees remained clean. See
 [the public corpus](ONLINE_VALIDATION.md) and [resource budgets](PERFORMANCE.md).
 
-## Still required before a stable release
+## Maintainer-owned release sign-off
 
-- Three uncoached first-time reviewer sessions using [the documented protocol](REVIEWER_SESSIONS.md).
-- Review and refine provisional performance expectations using those sessions.
-- A passing remote Linux/macOS matrix for the candidate; local verification covered Linux only.
-- Manual Safari, screen-reader, keyboard-only, and 200% zoom sign-off.
+The user has taken responsibility for the three uncoached reviewer sessions using
+[the documented protocol](REVIEWER_SESSIONS.md). Their observations are not fabricated
+in this record. Performance budgets remain provisional until reviewed against that feedback.
+
+Linux/macOS, Safari, keyboard operation, reflow/zoom, accessibility semantics, installation,
+and corpus checks are now verified. The application remains at its existing alpha package
+version; this work does not publish a stable package or merge the validation branch.
 
 See [the release checklist](RELEASE_CHECKLIST.md). Automated evidence checks do not prove
-runtime correctness or independently validate every possible connection in arbitrary code.
+runtime correctness or constitute a human screen-reader session.

@@ -134,6 +134,6 @@ python3 tests/release_smoke.py dist/*.whl
 
 ## Project status
 
-Threadline is a developer alpha. The standalone application and wheel are usable now. The expanded corpus and provisional performance budgets are automated. Three first-time reviewer sessions and the platform/browser release sign-off remain before a stable release. See the [release checklist](docs/RELEASE_CHECKLIST.md) and [resource budgets](docs/PERFORMANCE.md).
+Threadline is a developer alpha. The standalone application and wheel are usable now. The expanded corpus, performance budgets, Linux/macOS matrix, native Safari, accessibility checks, and clean-wheel installs pass. The maintainer owns the three first-time reviewer sessions and final release sign-off. See the [release checklist](docs/RELEASE_CHECKLIST.md) and [resource budgets](docs/PERFORMANCE.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md), and the [MIT License](LICENSE).

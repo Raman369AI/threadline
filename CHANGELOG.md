@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Verify all six Linux/macOS Python matrix jobs, native Safari, Chrome accessibility, and the seven-repository corpus in CI. Fix macOS temporary-path aliases and remove reverse-DNS startup dependence. Enable private vulnerability reporting.
+
 - Add native Safari and Chrome accessibility CI, correct text contrast and action sizes, and add skip navigation and coverage focus handling.
 
 - Read, hash, and parse the same source bytes; reject symlink traversal and nonregular source files on POSIX.

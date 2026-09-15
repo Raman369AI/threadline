@@ -98,3 +98,12 @@ class ChangeReviewTests(unittest.TestCase):
         self.assertEqual([row['name'] for row in result['changedMethods']],['keep'])
         source=store.get_source(snapshot_id=result['workingSnapshotId'],evidence=result['changedMethods'][0]['evidenceId'])
         self.assertIn('return value + 1',source['source'])
+
+    def test_system_temp_directory_alias_preserves_baseline_containment(self):
+        from unittest.mock import patch
+        actual=self.root/'temp-real';actual.mkdir()
+        alias=self.root/'temp-alias';alias.symlink_to(actual,target_is_directory=True)
+        (self.root/'logic.py').write_text('def keep(value):\n    return value + 1\n')
+        with patch('tempfile.tempdir',str(alias)):
+            result=review_changes(self.root)
+        self.assertEqual([row['name'] for row in result['changedMethods']],['keep'])

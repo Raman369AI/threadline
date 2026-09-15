@@ -8,7 +8,7 @@
 <body>
 <a href="#flow" class="skip-link">Skip to method flow</a>
 <header class="topbar">
-  <a class="brand" href="#" aria-label="Threadline home"><span class="brand-icon">↳</span> threadline</a>
+  <a class="brand" href="#" aria-label="Threadline home"><span class="brand-icon" aria-hidden="true">↳</span> threadline</a>
   <span class="top-divider"></span><span id="projectName">Loading source…</span>
   <span class="top-spacer"></span><span class="static-state"><i></i> Source only · not executed</span>
   <button id="coverageButton" class="quiet-button" aria-expanded="false" aria-controls="coveragePanel">Coverage</button>
@@ -21,7 +21,7 @@
     <section id="workflowBrowser" hidden aria-label="Workflow overview"></section>
     <div id="repositoryBrowser">
     <div class="nav-heading">REPOSITORY <span id="fileCount"></span></div>
-    <label class="search-wrap"><span>⌕</span><input id="search" type="search" placeholder="Find a method or file…" aria-label="Find a method or file"><kbd>/</kbd></label>
+    <label class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find a method or file…" aria-label="Find a method or file"><kbd>/</kbd></label>
     <div class="nav-filters"><select id="kindFilter" aria-label="Filter scope type"><option value="all">All definitions</option><option value="callable">Functions & methods</option><option value="class">Classes</option><option value="module">Module bodies</option><option value="unknown">With unknown calls</option></select></div>
     <div id="navigation" class="nav-tree"></div>
     <div class="nav-footer">Every indexed definition is selectable.<br>Source bodies are never executed.</div>
@@ -32,7 +32,7 @@
     <div class="review-heading">
       <div class="title-row"><h1 id="scopeTitle">Reading the repository</h1></div>
       <code id="methodName" class="method-name"></code>
-      <div id="payloadSummary" class="payload-summary" aria-label="Input and output"></div>
+      <div id="payloadSummary" class="payload-summary" role="group" aria-label="Input and output"></div>
       <details class="method-details"><summary>Details</summary>
         <div id="scopePath" class="breadcrumb"></div>
         <span id="scopeKind" class="kind-label"></span>
@@ -48,7 +48,7 @@
   <aside class="source-panel" aria-label="Original source">
     <div class="source-header"><div><span class="section-label">ORIGINAL CODE</span><div id="sourceFile" class="source-file">Select a flow operation</div></div><button id="clearFocus" class="quiet-button" title="Show the selected method">Whole method</button></div>
     <div id="sourceContext" class="source-context">The surrounding flow stays in place.</div>
-    <div id="sourceCode" class="code-window" tabindex="0" aria-label="Original Python source"></div>
+    <div id="sourceCode" class="code-window" role="region" tabindex="0" aria-label="Original Python source"></div>
     <div id="sourceDetails" class="source-details"></div>
     <div class="source-footer"><span id="snapshotLabel">Source snapshot</span><span>Read only · never executed</span></div>
   </aside>

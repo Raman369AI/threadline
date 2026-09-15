@@ -26,7 +26,7 @@ def review_changes(root: str | Path, base: str = 'HEAD', files: list[str] | None
     exclusions = current['analysisOptions']['exclude']
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='threadline-base-') as directory:
-        base_root = Path(directory)
+        base_root = Path(directory).resolve()
         total_bytes = count = 0
         for name in (item for item in _git_z(root, ['ls-tree', '-r', '-z', '--name-only', base_revision]) if item.endswith('.py') or item == 'pyproject.toml'):
             target = base_root / name

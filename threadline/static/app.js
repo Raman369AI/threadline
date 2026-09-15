@@ -3,7 +3,7 @@ let model;
 const $ = selector => document.querySelector(selector);
 const state = { scope: null, focus: null, stack: [], selectedElement: null, sourceWhole: false, wrap: true };
 const format = value => Number(value).toLocaleString();
-function el(tag, cls, content) { const node = document.createElement(tag); if (cls) node.className = cls; if (content !== undefined) node.textContent = content; return node; }
+function el(tag, cls, content) { const node = document.createElement(tag); if (cls) node.className = cls; if (cls === 'op-glyph') node.setAttribute('aria-hidden','true'); if (content !== undefined) node.textContent = content; return node; }
 function button(label, cls, handler) { const b = el('button', cls, label); b.type = 'button'; b.addEventListener('click', handler); return b; }
 function walk(nodes) { return nodes.flatMap(node => [node, ...node.branches.flatMap(branch => walk(branch.nodes))]); }
 function scopeName(id) { return model.scopes[id]?.qualified || id; }

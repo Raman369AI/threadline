@@ -1,0 +1,285 @@
+{
+  "description": "Manually authored Python source expectations. No fixtures are imported or executed. allowedTargets are candidate bounds, not observed runtime targets.",
+  "cases": [
+    {
+      "name": "import alias",
+      "files": {
+        "app.py": "from helpers import clean as normalize\ndef run(value):\n    return normalize(value)\n",
+        "helpers.py": "def clean(value):\n    return value\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "normalize",
+          "allowedStatuses": [
+            "supported"
+          ],
+          "allowedTargets": [
+            "helpers.py:clean"
+          ],
+          "directTarget": true
+        }
+      ]
+    },
+    {
+      "name": "module alias",
+      "files": {
+        "app.py": "import helpers as h\ndef run(value):\n    return h.clean(value)\n",
+        "helpers.py": "def clean(value):\n    return value\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "h.clean",
+          "allowedStatuses": [
+            "supported"
+          ],
+          "allowedTargets": [
+            "helpers.py:clean"
+          ],
+          "directTarget": true
+        }
+      ]
+    },
+    {
+      "name": "local assignment alias",
+      "files": {
+        "app.py": "def clean(value):\n    return value\ndef run(value):\n    alias = clean\n    return alias(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "alias",
+          "allowedStatuses": [
+            "supported",
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "app.py:clean"
+          ],
+          "directTarget": true
+        }
+      ]
+    },
+    {
+      "name": "shadowed import",
+      "files": {
+        "app.py": "from helpers import clean\ndef run(clean, value):\n    return clean(value)\n",
+        "helpers.py": "def clean(value):\n    return value\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "clean",
+          "allowedStatuses": [
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "helpers.py:clean"
+          ],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "overridable self member",
+      "files": {
+        "app.py": "class Base:\n    def clean(self, value):\n        return value\n    def run(self, value):\n        return self.clean(value)\nclass Child(Base):\n    def clean(self, value):\n        return None\n"
+      },
+      "checks": [
+        {
+          "scope": "Base.run",
+          "call": "self.clean",
+          "allowedStatuses": [
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "app.py:Base.clean",
+            "app.py:Child.clean"
+          ],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "inherited self member",
+      "files": {
+        "app.py": "class Base:\n    def clean(self, value):\n        return value\nclass Child(Base):\n    def run(self, value):\n        return self.clean(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "Child.run",
+          "call": "self.clean",
+          "allowedStatuses": [
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "app.py:Base.clean"
+          ],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "super member",
+      "files": {
+        "app.py": "class Base:\n    def clean(self, value):\n        return value\nclass Child(Base):\n    def run(self, value):\n        return super().clean(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "Child.run",
+          "call": "super().clean",
+          "allowedStatuses": [
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "app.py:Base.clean"
+          ],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "decorated target",
+      "files": {
+        "app.py": "def decorate(fn):\n    def wrapper(value):\n        return None\n    return wrapper\n@decorate\ndef clean(value):\n    return value\ndef run(value):\n    return clean(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "clean",
+          "allowedStatuses": [
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "app.py:clean",
+            "app.py:decorate.wrapper"
+          ],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "decorated method",
+      "files": {
+        "app.py": "class Handler:\n    @staticmethod\n    def clean(value):\n        return value\ndef run(value):\n    return Handler.clean(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "Handler.clean",
+          "allowedStatuses": [
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "app.py:Handler.clean"
+          ],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "callback parameter",
+      "files": {
+        "app.py": "def run(callback, value):\n    return callback(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "callback",
+          "allowedStatuses": [
+            "unknown"
+          ],
+          "allowedTargets": [],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "default callback can be replaced",
+      "files": {
+        "app.py": "def clean(value):\n    return value\ndef run(value, callback=clean):\n    return callback(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "callback",
+          "allowedStatuses": [
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "app.py:clean"
+          ],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "callback returned dynamically",
+      "files": {
+        "app.py": "def clean(value):\n    return value\ndef pick():\n    return clean\ndef run(value):\n    callback = pick()\n    return callback(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "callback",
+          "allowedStatuses": [
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "app.py:clean"
+          ],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "direct local function",
+      "files": {
+        "app.py": "def clean(value):\n    return value\ndef run(value):\n    return clean(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "clean",
+          "allowedStatuses": [
+            "supported"
+          ],
+          "allowedTargets": [
+            "app.py:clean"
+          ],
+          "directTarget": true
+        }
+      ]
+    },
+    {
+      "name": "conditional definitions",
+      "files": {
+        "app.py": "if flag:\n    def clean(value):\n        return value\nelse:\n    def clean(value):\n        return None\ndef run(value):\n    return clean(value)\n"
+      },
+      "checks": [
+        {
+          "scope": "run",
+          "call": "clean",
+          "allowedStatuses": [
+            "possible",
+            "unknown"
+          ],
+          "allowedTargets": [
+            "app.py:clean"
+          ],
+          "directTarget": false
+        }
+      ]
+    }
+  ]
+}

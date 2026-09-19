@@ -33,7 +33,7 @@ The interface provides three levels without sending you to another page:
 - **Focused step:** branches, calls, transformations, effects, and returns at that point.
 - **Source:** the exact code supporting the selected operation.
 
-Calls stay nested under their call site. Loops appear once, recursion is marked, and possible or unknown targets remain visibly uncertain.
+Calls stay nested under their call site. Workflow pages load progressively, and branch bodies load when expanded. Loops appear once, recursion is marked, and possible or unknown targets remain visibly uncertain.
 
 ## Requirements
 
@@ -58,7 +58,7 @@ If you have a locally built or shared release wheel:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install threadline_review-0.2.0a1-py3-none-any.whl
+.venv/bin/python -m pip install threadline_review-0.2.0b1-py3-none-any.whl
 ```
 
 ## Review a repository
@@ -71,9 +71,9 @@ Threadline prints and opens a local URL, normally <http://127.0.0.1:4173/>. Use 
 
 In the browser:
 
-1. Open **Find a method** and search for any function or method.
-2. Select it to see its complete local logic and original source.
-3. Choose **Trace this method across files** to follow resolvable calls from that point.
+1. Use **Endpoints**, **Commands & tasks**, or **Modules & methods**, or search across all three.
+2. One click opens its workflow, local logic, and original source.
+3. Follow source-linked calls across files from that selected method.
 4. Expand branches or calls in place; use **Back to caller** to resume where you left off.
 5. Open **Coverage** to see parse failures, excluded paths, and unmodeled call syntax.
 
@@ -91,7 +91,7 @@ Run Threadline from the working tree and provide the Git baseline:
 .venv/bin/threadline review /path/to/git-repository --base HEAD
 ```
 
-Change review distinguishes modified methods, deleted methods, known source-linked callers, and possible impact. It reads Git objects without checking out or executing either version.
+The **Changes** view distinguishes modified methods, previous and deleted methods, current source-linked callers, historical baseline callers, and possible impact. Choose **Compare before / after** to read both retained versions together. Threadline reads Git objects without checking out or executing either version.
 
 ## Structured output
 
@@ -129,6 +129,7 @@ Start with the **[documentation hub](docs/README.md)** for installation, everyda
 | Check test results and platform coverage | [Validation record](docs/VALIDATION.md) |
 | Understand keyboard access and browser checks | [Accessibility](docs/ACCESSIBILITY.md) |
 | Check resource limits for a larger repository | [Performance and resource budgets](docs/PERFORMANCE.md) |
+| Publish a package release | [PyPI publishing guide](docs/PUBLISHING.md) |
 | Report a vulnerability privately | [Security policy](SECURITY.md) |
 
 ## Validation
@@ -149,6 +150,6 @@ python3 tests/release_smoke.py dist/*.whl
 
 ## Project status
 
-Threadline is a developer alpha. The standalone application and wheel are usable now. The expanded corpus, performance budgets, Linux/macOS matrix, native Safari, accessibility checks, and clean-wheel installs pass. The maintainer owns the three first-time reviewer sessions and final release sign-off. See the [release checklist](docs/RELEASE_CHECKLIST.md) and [resource budgets](docs/PERFORMANCE.md).
+Threadline is a developer beta. The standalone application and wheel are usable now. The expanded corpus, performance budgets, Linux/macOS matrix, native Safari, accessibility checks, and clean-wheel installs pass. The maintainer owns the three first-time reviewer sessions and final release sign-off. See the [release checklist](docs/RELEASE_CHECKLIST.md) and [resource budgets](docs/PERFORMANCE.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md), and the [MIT License](LICENSE).

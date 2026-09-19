@@ -298,3 +298,78 @@ button, summary, select { min-height:24px; }
 button { min-width:24px; }
 
 @media(max-width:850px){.code-window{min-height:0}}
+
+/* Change review uses the same method and source panes as ordinary review. */
+.view-tabs { flex-wrap:wrap; }
+#changesBrowser { min-height:0; overflow:auto; flex:1; padding:0 3px 12px; }
+.change-section { border-top:1px solid var(--line); padding:10px 0; }
+.change-section>summary { cursor:pointer; font-size:12px; font-weight:600; }
+.change-records { font-size:11px; line-height:1.6; }
+.change-record { padding:9px 0; border-top:1px solid var(--line); }
+.change-record .scope-jump { display:block; text-align:left; white-space:normal; overflow-wrap:anywhere; line-height:1.6; padding:4px 2px; }
+.review-error { position:sticky; top:0; z-index:6; margin-bottom:16px; overflow-wrap:anywhere; }
+.review-error p { margin:0 0 8px; }
+.review-error button+button { margin-left:8px; }
+.baseline-notice { padding:12px; margin-bottom:16px; background:var(--amber-bg); border:1px solid #e8d9b6; border-radius:7px; font-size:12px; line-height:1.6; }
+.change-record .change-name { font-size:12px; font-weight:550; text-decoration:none; }
+.change-record .change-name:hover { text-decoration:underline; }
+
+/* Comparisons keep repository navigation visible and stack on small screens. */
+.comparing .review,.comparing .source-panel { display:none; }
+.comparison-panel { grid-column:2 / -1; overflow:auto; padding:22px; min-width:0; background:var(--paper); }
+.comparison-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.comparison-heading h1 { font-size:19px; }
+.comparison-notice { font-size:12px; line-height:1.6; color:#536357; }
+.comparison-columns { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.comparison-side { min-width:0; border:1px solid var(--line); border-radius:7px; padding:12px; }
+.comparison-side h2 { font-size:14px; margin:0 0 10px; }
+.comparison-code { max-height:65vh; overflow:auto; }
+.comparison-code .code-line { padding-right:0; }
+@media(max-width:850px) { .comparison-panel { grid-column:1 / -1; grid-row:2 / -1; padding:12px; } }
+@media(max-width:580px) { .comparison-columns { grid-template-columns:1fr; } }
+.branch-controls { margin:10px 0; }
+.workflow-provenance .workflow-link-evidence { display:block; text-align:left; }
+
+/* One chooser and one search, independent of the currently inspected call graph. */
+.navigator>.search-wrap { flex:none; margin-bottom:12px; }
+.view-tabs { gap:2px; border:0; background:none; padding:0; }
+.view-tabs button { font-size:11px; padding:7px 4px; }
+.workspace.choosing .review,.workspace.choosing .source-panel { display:none; }
+.start-page { grid-column:2 / -1; overflow:auto; padding:36px; min-width:0; background:#fbfcfa; }
+.start-heading { max-width:800px; margin-bottom:28px; }
+.start-heading h1 { font-size:27px; letter-spacing:-.6px; margin:12px 0; }
+.start-heading>p:last-child { font-size:14px; line-height:1.65; color:#536357; }
+.start-groups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:26px; align-items:start; }
+.start-group { min-width:0; }
+.start-group h2 { font-size:15px; margin:0 0 12px; }
+.start-item { display:block; width:100%; padding:12px 14px; margin:7px 0; text-align:left; border:1px solid #dce5dd; border-radius:8px; background:#fff; color:#304b39; }
+.start-item:hover { background:#f2f8ef; border-color:#91ae94; }
+.start-item strong { display:block; font-size:13px; font-weight:550; overflow-wrap:anywhere; }
+.start-method { display:block; font-size:11px; line-height:1.5; color:#57665b; margin-top:5px; overflow-wrap:anywhere; }
+#navigation .start-item { padding:10px; }
+.workspace.comparing .start-page { display:none; }
+@media(max-width:850px) { .start-page { grid-column:1 / -1; grid-row:2 / -1; padding:22px; } .workspace.choosing { grid-template-rows:110px minmax(0,1fr); } .choosing .navigator { height:110px; } .choosing:has(#navigation .nav-item) { grid-template-rows:240px minmax(0,1fr); } .choosing:has(#navigation .nav-item) .navigator { height:240px; } .start-heading h1 { font-size:23px; } }
+@media(max-width:580px) { .start-groups { grid-template-columns:1fr; gap:20px; } .start-page { padding:18px; } }
+
+.review-error { position:fixed; top:70px; right:20px; max-width:min(420px,calc(100vw - 40px)); z-index:30; }
+
+/* Repository pages share one global search and open the same source review. */
+.view-tabs { display:flex; flex-direction:column; align-items:stretch; }
+.view-tabs button { text-align:left; padding:9px 10px; font-size:12px; }
+.start-groups.single-page { grid-template-columns:minmax(0,1fr); max-width:980px; }
+.endpoint-tabs { display:flex; flex-wrap:wrap; gap:5px; border-bottom:1px solid var(--line); padding-bottom:12px; margin-bottom:18px; }
+.endpoint-tab { border:0; background:transparent; padding:8px 14px; border-radius:6px; color:#435549; }
+.endpoint-tab[aria-selected=true] { background:#28583f; color:white; }
+.catalog-pagination { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:16px 0; }
+.method-file { margin-bottom:24px; }
+.method-file h2 { overflow-wrap:anywhere; }
+@media(max-width:850px) { .view-tabs { flex-direction:row; } .view-tabs button { flex:0 1 auto; padding:6px 8px; } .workspace.choosing { grid-template-rows:155px minmax(0,1fr); } .choosing .navigator { height:155px; } }
+
+.module-filter { width:100%; max-width:460px; border:1px solid var(--line); border-radius:6px; padding:10px 12px; background:white; margin:8px 0 18px; }
+.module-heading h2 { overflow-wrap:anywhere; margin:16px 0 8px; }
+.module-heading p { overflow-wrap:anywhere; }
+.module-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 16px; }
+.module-grid .catalog-pagination { grid-column:1 / -1; }
+.module-count { display:block; font-size:11px; color:#536357; margin-top:9px; }
+.workflow-module-link { display:block; grid-column:2 / -1; font-size:11px; color:#30543b; overflow-wrap:anywhere; margin:5px 0; }
+@media(max-width:580px) { .module-grid { grid-template-columns:1fr; } }

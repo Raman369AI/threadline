@@ -93,11 +93,15 @@ def make_server(root, host='127.0.0.1', port=4173, retention=2, base=None, sourc
             request = urlsplit(self.path); path = request.path; query = parse_qs(request.query)
             try:
                 if path == '/api/session': return self.reply(200, {'token': token})
-                if path == '/api/scope': return self.reply(200, pinned.get_scope(_one(query, 'symbol', required=True), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 20)))
+                if path == '/api/scope': return self.reply(200, pinned.get_scope(_one(query, 'symbol', required=True), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 20), shallow=_one(query, 'shallow') == '1'))
+                if path == '/api/branch': return self.reply(200, pinned.get_branch(_one(query, 'symbol', required=True), _one(query, 'operation', required=True), _int(query, 'arm', 0), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 20)))
+                if path == '/api/compare': return self.reply(200, pinned.compare_change(_one(query, 'symbol', required=True), snapshot_id=_one(query, 'snapshot'), side=_one(query, 'side', 'working'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 40)))
                 if path == '/api/diagnostics': return self.reply(200, pinned.diagnostics(snapshot_id=_one(query, 'snapshot'), category=_one(query, 'category', 'errors'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 25)))
                 if path == '/api/index':
                     return self.reply(200, pinned.model(_one(query, 'snapshot')))
                 if path == '/api/summary': return self.reply(200, pinned.summary(snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 25)))
+                if path == '/api/modules': return self.reply(200, pinned.modules(snapshot_id=_one(query, 'snapshot'), file=_one(query, 'file'), query=_one(query, 'q', ''), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 20)))
+                if path == '/api/starts': return self.reply(200, pinned.starts(snapshot_id=_one(query, 'snapshot'), query=_one(query, 'q', ''), category=_one(query, 'category'), method=_one(query, 'method'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 6)))
                 if path == '/api/symbols': return self.reply(200, pinned.find_symbols(_one(query, 'q', ''), kind=_one(query, 'kind', 'callable'), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 25)))
                 if path == '/api/workflow': return self.reply(200, pinned.get_workflow(_one(query, 'entrypoint', required=True), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 40)))
                 if path == '/api/method': return self.reply(200, pinned.get_method(_one(query, 'symbol', required=True), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 50)))

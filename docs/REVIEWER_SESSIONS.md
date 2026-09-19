@@ -2,6 +2,8 @@
 
 [Documentation home](README.md) · [Project home](../README.md)
 
+Use the [session kit](REVIEWER_SESSION_KIT.md) to prepare the fixture and task card, and record real observations in [reviewer results](REVIEWER_RESULTS.md).
+
 Status: **pending maintainer validation.** Record three completed sessions before stable release sign-off.
 
 Recruit three people who have not used Threadline. Do not send repository source to

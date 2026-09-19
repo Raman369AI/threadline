@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.2.0b1 — 2026-09-18
+
+- Separate Endpoints, Commands & tasks, and Modules & methods pages; filter endpoints by HTTP verb and pick a module before browsing its methods.
+- Open a selected method and its cross-file workflow in one click, with persistent search and no automatic initial method.
+- Pick a module before choosing a method, and label source-supported calls between modules.
+- Add PyPI Trusted Publishing and a release guide; mark this release as beta.
+
+
+- Load workflows progressively with bounded generation caching, and fetch branch bodies only when expanded.
+- Compare retained before/after source in one view, with pagination and explicit handling of added, deleted, renamed, or ambiguous definitions.
+- Add a manually authored semantic accuracy corpus, interactive timing measurements, and a ready-to-run human reviewer session kit.
+
+- Open Git reviews in a dedicated, paged Changes view with workflow actions and explicit baseline navigation.
+- Retain historical caller and call-site evidence for changed or deleted definitions, separately from current callers and possible impact.
+- Show visible, accessible loading errors with retry actions; preserve the prior review after a failed refresh and follow same-page method links.
 
 - Verify all six Linux/macOS Python matrix jobs, native Safari, Chrome accessibility, and the seven-repository corpus in CI. Fix macOS temporary-path aliases and remove reverse-DNS startup dependence. Enable private vulnerability reporting.
 

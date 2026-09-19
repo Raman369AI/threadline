@@ -92,6 +92,80 @@ def _declared_scripts(model):
     return {value.split('[', 1)[0].strip() for value in values if isinstance(value, str)}
 
 
+def workflow_catalog(model):
+    """Expose independent review starts; source declarations never imply execution."""
+    import ast
+    import tomllib
+    try:
+        config = tomllib.loads(model.get('configuration', ''))
+        scripts = config.get('project', {}).get('scripts', {})
+        if not isinstance(scripts, dict): scripts = {}
+        poetry = config.get('tool', {}).get('poetry', {}).get('scripts', {})
+        if isinstance(poetry, dict): scripts = {**poetry, **scripts}
+    except (ValueError, AttributeError):
+        scripts = {}
+    commands = {}
+    for name, target in scripts.items():
+        if isinstance(target, str): commands.setdefault(target.split('[', 1)[0].strip(), []).append(name)
+    prefixes = {}
+    for file, info in model['files'].items():
+        try: tree = ast.parse(info['source'])
+        except (SyntaxError, ValueError): continue
+        for node in tree.body:
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)) or not isinstance(node.value, ast.Call): continue
+            constructor = ast.unparse(node.value.func).split('.')[-1]
+            if constructor not in ('APIRouter', 'Blueprint'): continue
+            prefix = next((kw.value.value for kw in node.value.keywords if kw.arg in ('prefix', 'url_prefix') and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str)), '')
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name): prefixes[(file, target.id)] = prefix
+    rows = []
+    for scope in model['scopes'].values():
+        if scope['kind'] == 'class': continue
+        entries = []
+        http_methods = {}
+        for text in scope['decorators']:
+            try: decorator = ast.parse(text, mode='eval').body
+            except (SyntaxError, ValueError): continue
+            func = decorator.func if isinstance(decorator, ast.Call) else decorator
+            name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ''
+            args = decorator.args if isinstance(decorator, ast.Call) else []
+            keywords = decorator.keywords if isinstance(decorator, ast.Call) else []
+            path = next((kw.value for kw in keywords if kw.arg == 'path'), args[0] if args else None)
+            if name in ('get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'route', 'api_route', 'websocket', 'websocket_route'):
+                if isinstance(path, ast.Constant) and isinstance(path.value, str):
+                    receiver = ast.unparse(func.value) if isinstance(func, ast.Attribute) else ''
+                    route = prefixes.get((scope['file'], receiver), '') + path.value
+                    verb = 'WS' if 'websocket' in name else name.upper()
+                    if name in ('route', 'api_route'):
+                        methods = next((kw.value for kw in keywords if kw.arg == 'methods'), None)
+                        if isinstance(methods, (ast.List, ast.Tuple)) and all(isinstance(item, ast.Constant) and isinstance(item.value, str) for item in methods.elts):
+                            verb = ', '.join(item.value.upper() for item in methods.elts)
+                        else: verb = 'ROUTE'
+                    label = verb+' '+route
+                    http_methods[label] = verb.split(', ')
+                    entries.append(('http', label))
+            elif name in ('command', 'callback', 'group'):
+                label = next((kw.value.value for kw in keywords if kw.arg == 'name' and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str)), None)
+                if not label and args and isinstance(args[0], ast.Constant) and isinstance(args[0].value, str): label = args[0].value
+                entries.append(('commands', label or scope['qualified']))
+            elif name in ('task', 'shared_task', 'periodic_task', 'on_event', 'on_startup', 'on_shutdown'):
+                entries.append(('tasks', scope['qualified']))
+        key = f"{scope['module']}:{scope['qualified']}"
+        entries.extend(('commands', name) for name in commands.get(key, []))
+        if scope['kind'] == 'module':
+            if any('__main__' in node.get('label', '') and '__name__' in node.get('label', '') for node in nodes(scope['flow'])):
+                entries.append(('commands', 'python -m '+scope['module']))
+            if not entries: continue
+        if not entries: entries = [('methods', scope['qualified'])]
+        for category, label in dict.fromkeys(entries):
+            rows.append({'id': scope['id'], 'name': scope['qualified'], 'label': label,
+                         'category': category, 'file': scope['file'], 'line': scope['span']['start'], 'span': scope['span'],
+                         **({'httpMethods': http_methods[label]} if category == 'http' else {})})
+    rows.sort(key=lambda row: (row['category'], row['name'].split('.')[-1].startswith('__'), row['label'].casefold(), row['file'], row['line']))
+    return rows
+
+
 def generic_workflow(model, scope_id, max_stages=500):
     """Build a nested cross-file call workflow without promoting ambiguity to fact."""
     root = model['scopes'][scope_id]
@@ -133,6 +207,8 @@ def generic_workflow(model, scope_id, max_stages=500):
                              'condition': (' / '.join(path) + ' · ' if path else '') + (call.get('execution') or 'ordinary call'),
                              'status': call['status'], 'reason': call['reason'], 'bindings': call['bindings'],
                              'recursive': recursive, 'evidence': [{'scope': current_id, 'span': call['span'], 'label': 'Original call site'}]}
+                    if target and target['file'] != current['file']:
+                        stage['moduleLink'] = {'from': current['module'], 'to': target['module']}
                     stages.append(stage)
                     links.append({'id': stage_id, 'from': parent_stage, 'to': stage_id, 'kind': 'call',
                                   'label': 'Call inside ' + current['qualified'], 'data': ', '.join(call['arguments']),

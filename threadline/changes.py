@@ -69,6 +69,29 @@ def review_changes(root: str | Path, base: str = 'HEAD', files: list[str] | None
         for caller_id in current['scopes'][item['id']]['callers']:
             scope = current['scopes'][caller_id]
             callers.append(_scope_ref(scope, 'known source-linked caller'))
+    # Baseline relationships stay separate: deleted targets cannot resolve in
+    # the working snapshot, and line-based scope IDs can change after edits.
+    previous_ids = {item['id'] for item in changed_before}
+    baseline_callers = []
+    caller_ids = {caller_id for target_id in previous_ids
+                  for caller_id in before['scopes'][target_id]['callers']}
+    for caller_id in sorted(caller_ids):
+        scope = before['scopes'][caller_id]
+        calls = []
+        for node in _nodes(scope['flow']):
+            for call in node['calls']:
+                if call['status'] != 'supported':
+                    continue
+                for target_id in call['targets']:
+                    if target_id in previous_ids:
+                        calls.append(add_evidence_ids({
+                            'span': call['span'],
+                            'target': _scope_ref(before['scopes'][target_id], 'previous definition'),
+                        }))
+        if calls:
+            row = _scope_ref(scope, 'historical source-linked caller; current resolution is not established')
+            row.update(snapshotId=before['snapshotId'], calls=calls)
+            baseline_callers.append(row)
     possible = []
     changed_names = {current['scopes'][item['id']]['name'] for item in changed_current}
     for scope in current['scopes'].values():
@@ -78,7 +101,7 @@ def review_changes(root: str | Path, base: str = 'HEAD', files: list[str] | None
                 possible.append(_scope_ref(scope, 'possible caller under static dispatch assumptions')); break
     return {'base': base, 'workingSnapshotId': current['snapshotId'], 'baseSnapshotId': before['snapshotId'],
             'files': statuses, 'changedMethods': _unique(changed_current), 'previousMethods': _unique(changed_before),
-            'knownCallers': _unique(callers), 'possibleImpact': _unique(possible),
+            'knownCallers': _unique(callers), 'baselineCallers': baseline_callers, 'possibleImpact': _unique(possible),
             'parseErrors': {'working': current['errors'], 'base': before['errors']},
             'notice': 'Changed methods are syntactic overlap. Callers are classified separately; reachability is not observed execution.'}
 

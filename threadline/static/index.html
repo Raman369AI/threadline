@@ -15,19 +15,21 @@
   <button id="refreshButton" class="quiet-button" title="Read the current files again">↻ Refresh source</button>
 </header>
 <section id="coveragePanel" class="coverage-panel" tabindex="-1" role="region" aria-label="Source coverage" hidden></section>
+<div id="reviewError" class="review-error error" role="region" aria-label="Review error" hidden></div>
 <div class="workspace">
   <aside class="navigator" aria-label="Repository navigator">
-    <div class="view-tabs" role="group" aria-label="Review view"><button id="workflowTab" aria-pressed="false">Workflow</button><button id="methodsTab" aria-pressed="true">Find a method</button></div>
+    <label class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Route, command, or method…" aria-label="Search routes, commands, and methods"><kbd>/</kbd></label>
+    <div class="view-tabs" role="group" aria-label="Review view"><button id="endpointsTab" aria-pressed="false">Endpoints</button><button id="commandsTab" aria-pressed="false">Commands &amp; tasks</button><button id="methodsTab" aria-pressed="false">Modules &amp; methods</button><button id="workflowTab" aria-pressed="false" hidden>Current workflow</button><button id="changesTab" aria-pressed="false" hidden>Changes</button></div>
+    <section id="changesBrowser" hidden aria-label="Git changes"></section>
     <section id="workflowBrowser" hidden aria-label="Workflow overview"></section>
-    <div id="repositoryBrowser">
-    <div class="nav-heading">REPOSITORY <span id="fileCount"></span></div>
-    <label class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find a method or file…" aria-label="Find a method or file"><kbd>/</kbd></label>
-    <div class="nav-filters"><select id="kindFilter" aria-label="Filter scope type"><option value="all">All definitions</option><option value="callable">Functions & methods</option><option value="class">Classes</option><option value="module">Module bodies</option><option value="unknown">With unknown calls</option></select></div>
-    <div id="navigation" class="nav-tree"></div>
-    <div class="nav-footer">Every indexed definition is selectable.<br>Source bodies are never executed.</div>
-    </div>
+    <div id="repositoryBrowser"><div id="navigation" class="nav-tree"></div></div>
   </aside>
+  <main id="startPage" class="start-page" hidden>
+    <div class="start-heading"><p id="startProject" class="section-label"></p><h1 id="startTitle">Where do you want to start?</h1><p id="startHint">Choose a route, command, or method. Its workflow and original code open together.</p></div>
+    <div id="startGroups" class="start-groups"></div>
+  </main>
   <main class="review">
+    <div id="baselineNotice" class="baseline-notice" hidden></div>
     <section id="workflowContext" hidden aria-label="Workflow stage context"></section>
     <div class="review-heading">
       <div class="title-row"><h1 id="scopeTitle">Reading the repository</h1></div>
@@ -39,12 +41,13 @@
         <div id="scopeSummary" class="scope-summary"></div>
         <div id="suppliedInputs"></div>
         <div id="returnDetails"></div>
-        <div class="review-controls"><button id="expandBranches" class="quiet-button">Expand branches</button><button id="collapseCalls" class="quiet-button">Collapse calls</button></div>
+        <div class="review-controls"><button id="expandBranches" class="quiet-button">Expand visible branches</button><button id="collapseCalls" class="quiet-button">Collapse calls</button></div>
       </details>
       <div class="reading-hint">Click any step below to see its code →</div>
     </div>
     <div id="flow" class="flow" tabindex="-1"></div>
   </main>
+  <main id="comparisonPanel" class="comparison-panel" aria-label="Before and after source comparison" hidden></main>
   <aside class="source-panel" aria-label="Original source">
     <div class="source-header"><div><span class="section-label">ORIGINAL CODE</span><div id="sourceFile" class="source-file">Select a flow operation</div></div><button id="clearFocus" class="quiet-button" title="Show the selected method">Whole method</button></div>
     <div id="sourceContext" class="source-context">The surrounding flow stays in place.</div>

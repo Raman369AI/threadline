@@ -2,9 +2,10 @@
 
 [Documentation home](README.md) · [Project home](../README.md)
 
-The engineering gates below passed in [CI run 34922515651](https://github.com/Raman369AI/threadline/actions/runs/34922515651) for commit `8c9d088`.
-The maintainer owns reviewer-session results and the final release decision. The existing
-alpha version remains unchanged until that decision.
+Earlier engineering gates passed in [CI run 34922515651](https://github.com/Raman369AI/threadline/actions/runs/34922515651) for commit `8c9d088`.
+The maintainer owns reviewer-session results and the final stable release decision.
+Version `0.2.0b1` is a beta prerelease; the three reviewer sessions remain pending.
+Each candidate must pass its own automated checks.
 
 ## Supported release target
 
@@ -31,7 +32,9 @@ New Python minor versions require a matrix run before being advertised as suppor
 6. Check the changelog, install commands, capability matrix, and security contact.
 
 CI runs the platform matrix and the public corpus on pushes and pull requests. Candidate
-wheel artifacts are retained. It does not publish a package or create a stable release.
+wheel artifacts are retained. These CI checks do not publish a package or create a stable release.
+The separate [PyPI publishing workflow](PUBLISHING.md) uploads packages when a GitHub
+release is published; complete the applicable release gates before triggering it.
 
 ## Reviewer sessions
 
@@ -45,5 +48,5 @@ Chrome and native Safari. Reports include actual viewport widths and axe checks 
 human review. These tests do not claim a human VoiceOver/NVDA session or complete WCAG
 conformance; include assistive-technology users in the maintainer-owned sessions.
 
-The maintainer signs off these results for the same candidate commit before changing
-alpha status, creating a stable tag, or publishing release artifacts.
+The maintainer signs off these results for the same candidate commit before creating a stable tag or publishing stable release artifacts.
+Beta prereleases retain their prerelease status and disclose pending human review.

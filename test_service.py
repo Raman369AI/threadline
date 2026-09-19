@@ -26,6 +26,64 @@ def service(value):
         (self.root/'pyproject.toml').write_text('[project.scripts]\nexample = "api:create"\n')
         self.store=SnapshotStore(self.root,retention=2)
 
+    def test_start_catalog_keeps_routes_commands_tasks_and_methods_independent(self):
+        source = 'from fastapi import APIRouter\nrouter = APIRouter(prefix="/api")\n'
+        source += ''.join(f'@router.get("/items/{i}")\ndef route_{i}():\n    return {i}\n' for i in range(35))
+        source += "@router.websocket('/live')\nasync def live():\n    pass\n@shared_task\ndef sync_records():\n    pass\nclass Worker:\n    def __init__(self):\n        pass\n    def execute(self):\n        pass\n"
+        (self.root/'routes.py').write_text(source)
+        catalog = self.store.starts(limit=6)
+        self.assertEqual(catalog['groups']['http']['total'], 37)
+        self.assertEqual(catalog['groups']['http']['nextCursor'], 6)
+        self.assertTrue(any(row['label'] == 'example' for row in catalog['groups']['commands']['items']))
+        self.assertTrue(any(row['name'] == 'sync_records' for row in catalog['groups']['tasks']['items']))
+        route = self.store.starts(query='/api/items/34')['results']['items'][0]
+        self.assertEqual(route['name'], 'route_34')
+        self.assertEqual(route['label'], 'GET /api/items/34')
+        for query in ('Worker.__init__', 'Worker.execute', 'sync_records', 'example'):
+            result = self.store.starts(query=query)['results']
+            self.assertEqual(result['total'], 1)
+            self.assertTrue(self.store.get_workflow(result['items'][0]['id'])['stages']['items'])
+        page = self.store.starts(category='http', cursor=6, limit=6)
+        self.assertEqual(len(page['results']['items']), 6)
+        self.assertTrue(all(row['category'] == 'http' for row in page['results']['items']))
+
+    def test_endpoint_verbs_filter_before_pagination(self):
+        source = 'from fastapi import APIRouter\nrouter = APIRouter()\n'
+        source += ''.join(f'@router.get("/items/{i}")\ndef route_{i}():\n    return {i}\n' for i in range(35))
+        source += '@router.api_route("/shared", methods=["GET", "POST"])\ndef shared():\n    pass\n@router.delete("/items")\ndef remove():\n    pass\n'
+        (self.root/'verbs.py').write_text(source)
+        catalog = self.store.starts(limit=6)
+        self.assertTrue({'GET', 'POST', 'DELETE'}.issubset(catalog['httpMethods']))
+        post = self.store.starts(category='http', method='POST', limit=6)['results']
+        self.assertTrue(any(row['name'] == 'shared' for row in post['items']))
+        self.assertTrue(all('POST' in row['httpMethods'] for row in post['items']))
+        get = self.store.starts(category='http', method='GET', cursor=30, limit=6)['results']
+        self.assertEqual(get['total'], 36)
+        self.assertEqual(len(get['items']), 6)
+        self.assertTrue(all('GET' in row['httpMethods'] for row in get['items']))
+        delete = self.store.starts(category='http', method='DELETE')['results']
+        self.assertEqual([row['name'] for row in delete['items']], ['remove'])
+        methods = self.store.starts(category='methods')['results']['items']
+        self.assertEqual(methods, sorted(methods, key=lambda row: (row['file'], row['line'], row['name'])))
+
+    def test_modules_pick_only_methods_from_selected_file(self):
+        for i in range(25):
+            (self.root/f'module_{i:02}.py').write_text('class Worker:\n    def run(self):\n        return 1\n    def __init__(self):\n        pass\n')
+        modules = self.store.modules(limit=20)['modules']
+        self.assertEqual(modules['total'], 27)
+        self.assertEqual(modules['nextCursor'], 20)
+        self.assertEqual(len(self.store.modules(cursor=20)['modules']['items']), 7)
+        match = self.store.modules(query='module_24')['modules']['items']
+        self.assertEqual(match, [{'name': 'module_24', 'file': 'module_24.py', 'total': 2}])
+        picked = self.store.modules(file='module_24.py')['methods']['items']
+        self.assertEqual([row['name'] for row in picked], ['Worker.run', 'Worker.__init__'])
+        self.assertTrue(all(row['file'] == 'module_24.py' for row in picked))
+        self.assertEqual(self.store.modules(file='module_24.py', query='run')['methods']['total'], 1)
+        # Route handlers and script entrypoints remain available through their module.
+        self.assertEqual(self.store.modules(file='api.py')['methods']['items'][0]['name'], 'create')
+        with self.assertRaises(ThreadlineError): self.store.modules(file='../missing.py')
+        with self.assertRaises(ThreadlineError): self.store.modules(limit=101)
+
     def test_snapshot_queries_are_bounded_and_consistent(self):
         summary=self.store.summary(limit=1)
         self.assertEqual(summary['schemaVersion'],'1.0')
@@ -137,6 +195,67 @@ def service(value):
         self.assertTrue(result['truncated'])
         next_page=self.store.get_workflow(symbol['id'],cursor=100,limit=100)
         self.assertTrue(any(stage.get('expansionTruncated') for stage in next_page['stages']['items']))
+
+    def test_workflow_pages_reuse_cache_without_mutation_and_expire(self):
+        from unittest.mock import patch
+        from threadline.workflows import generic_workflow
+        entry = self.store.summary()['entrypoints']['items'][0]['id']
+        first_id = self.store.current_id
+        with patch('threadline.service.generic_workflow', wraps=generic_workflow) as build:
+            first = self.store.get_workflow(entry, limit=1)
+            first['stages']['items'][0]['label'] = 'mutated by consumer'
+            self.store.get_workflow(entry, cursor=1, limit=1)
+            again = self.store.get_workflow(entry, limit=1)
+            self.assertNotEqual(again['stages']['items'][0]['label'], 'mutated by consumer')
+            self.assertEqual(build.call_count, 1)
+            for index in range(2):
+                path = self.root/'api.py'
+                path.write_text(path.read_text()+f'\nrevision_{index} = {index}\n')
+                self.store.refresh()
+                self.store.get_workflow(entry, limit=1)
+            self.assertEqual(build.call_count, 3)
+        self.assertFalse(any(key[0] == first_id for key in self.store._workflow_cache))
+
+    def test_workflow_cache_budget_and_concurrent_requests(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        from threadline.workflows import generic_workflow
+        entry = self.store.summary()['entrypoints']['items'][0]['id']
+        with patch('threadline.service.generic_workflow', wraps=generic_workflow) as build:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                results = list(pool.map(lambda _: self.store.get_workflow(entry, limit=1), range(4)))
+            self.assertEqual(build.call_count, 1)
+            self.assertEqual(len(results), 4)
+        with patch('threadline.service.MAX_WORKFLOW_CACHE_ENTRIES', 1):
+            other = self.store.find_symbols('helper')['symbols']['items'][0]['id']
+            self.store.get_workflow(other)
+            self.assertEqual(len(self.store._workflow_cache), 1)
+        self.assertLessEqual(self.store._workflow_cache_bytes, 16*1024*1024)
+
+    def test_lazy_branch_pages_bound_nested_bodies_and_keep_exact_evidence(self):
+        (self.root/'huge.py').write_text('def huge(value):\n    if value:\n'+''.join(
+            f'        if value == {i}:\n            value += {i}\n' for i in range(150))+'    return value\n')
+        self.store.refresh()
+        symbol = self.store.find_symbols('huge')['symbols']['items'][0]['id']
+        page = self.store.get_scope(symbol, shallow=True)
+        branch = page['flow']['items'][0]['branches'][0]
+        self.assertEqual(branch['total'], 150)
+        self.assertEqual(branch['nodes'], [])
+        rows = []
+        cursor = 0
+        while cursor is not None:
+            result = self.store.get_branch(symbol, branch['operation'], branch['arm'], cursor=cursor, limit=20)
+            self.assertLessEqual(len(result['flow']['items']), 20)
+            rows.extend(result['flow']['items'])
+            cursor = result['flow']['nextCursor']
+        self.assertEqual(len(rows), 150)
+        self.assertTrue(all(not row['branches'][0]['nodes'] for row in rows))
+        nested = rows[-1]['branches'][0]
+        leaf = self.store.get_branch(symbol, nested['operation'], nested['arm'])['flow']['items'][0]
+        source = self.store.get_source(file=leaf['span']['file'], start=leaf['span']['start'], end=leaf['span']['end'])
+        self.assertIn('value += 149', source['source'])
+        with self.assertRaises(ThreadlineError): self.store.get_branch(symbol, branch['operation'], -1)
+        with self.assertRaises(ThreadlineError): self.store.get_branch(symbol, 'missing', 0)
 
     def test_malformed_project_metadata_is_not_executed_or_trusted(self):
         (self.root/'pyproject.toml').write_text('project = 3\ntool = ["unexpected"]\n')

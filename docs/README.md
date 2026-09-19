@@ -16,7 +16,7 @@ python3 -m venv .venv
 .venv/bin/threadline review example
 ```
 
-Open the local URL printed by Threadline. Choose **Find a method**, select a function, and inspect its steps and original source. Choose **Trace this method across files** to follow resolvable calls.
+Open the local URL printed by Threadline. Use **Endpoints**, **Commands & tasks**, or **Modules & methods**. The search box finds items across all three pages. One click opens its workflow, steps, and original source.
 
 To review your own repository:
 
@@ -39,14 +39,17 @@ Call labels describe static evidence: **supported**, **possible**, **external**,
 
 ## Check validation and release readiness
 
-Threadline is currently a developer alpha. These records explain what has been checked and what still needs maintainer sign-off.
+Threadline is currently a developer beta. These records explain what has been checked and what still needs maintainer sign-off.
 
 | Record | What it covers |
 | --- | --- |
 | [Validation](VALIDATION.md) | Self-contained tests, browser checks, platform coverage, and installation checks. |
 | [Public repository validation](ONLINE_VALIDATION.md) | The pinned source-only corpus and how to reproduce acceptance checks. |
 | [Release checklist](RELEASE_CHECKLIST.md) | Engineering release gates and maintainer responsibilities. |
+| [Publishing to PyPI](PUBLISHING.md) | Trusted Publisher setup, versions, release tags, verification, and troubleshooting. |
 | [First-time reviewer sessions](REVIEWER_SESSIONS.md) | The protocol for the three maintainer-owned usability sessions. |
+| [Reviewer session kit](REVIEWER_SESSION_KIT.md) | Reproducible fixture, task card, evidence key, and pending session forms. |
+| [Semantic accuracy checks](SEMANTIC_ACCURACY.md) | Manually specified call targets, false certainty, and unresolved cases. |
 
 ## Contribute and get support
 

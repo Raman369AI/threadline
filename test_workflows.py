@@ -40,6 +40,9 @@ def process(value):
         self.assertTrue(any(stage['label']=='clean' for stage in workflow['stages']))
         self.assertTrue(any(stage['status']=='unknown' for stage in workflow['stages']))
         self.assertTrue(workflow['alternatives'])
+        relations=[stage['moduleLink'] for stage in workflow['stages'] if 'moduleLink' in stage]
+        self.assertEqual(relations, [{'from':'api','to':'service'}, {'from':'service','to':'helpers'}])
+        self.assertTrue(all('moduleLink' not in stage for stage in workflow['stages'] if stage['status'] != 'supported'))
 
     def test_all_generated_connections_have_original_source_evidence(self):
         model=self.analyze_fixture()

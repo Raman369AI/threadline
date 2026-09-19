@@ -1,0 +1,72 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and validate distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          tag = os.environ['RELEASE_TAG']
+          if tag not in (version, f'v{version}'):
+              raise SystemExit(f'Release tag {tag!r} must match package version {version!r}')
+          PY
+      - name: Install build tools
+        run: python -m pip install --upgrade build twine
+      - name: Run unit tests
+        run: python -m unittest discover -v
+      - name: Build wheel and source distribution
+        run: python -m build
+      - name: Validate package metadata
+        run: python -m twine check --strict dist/*
+      - name: Verify clean wheel installation
+        run: python tests/release_smoke.py dist/*.whl
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pypi-distributions
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/threadline-review/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: pypi-distributions
+          path: dist/
+      - name: Publish distributions using Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1

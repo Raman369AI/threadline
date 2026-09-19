@@ -4,6 +4,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 import subprocess
 import tempfile
@@ -18,6 +21,14 @@ def main():
     args = parser.parse_args()
     wheel = args.wheel.resolve()
     if not wheel.is_file(): parser.error('wheel does not exist')
+    with zipfile.ZipFile(wheel) as archive:
+        metadata_name = next(name for name in archive.namelist() if name.endswith('.dist-info/METADATA'))
+        description = BytesParser().parsebytes(archive.read(metadata_name)).get_payload()
+    # PyPI does not resolve repository-relative Markdown links as GitHub does.
+    targets = re.findall(r'!?\[[^\]]*\]\(([^)\s]+)', description)
+    assert targets, 'Package description must link to documentation'
+    relative = [target for target in targets if not target.startswith(('https://', 'http://', '#', 'mailto:'))]
+    assert not relative, 'Package description contains broken relative links: '+repr(relative)
     with tempfile.TemporaryDirectory(prefix='threadline-release-') as directory:
         root = Path(directory)
         environment = root / 'environment'

@@ -4,18 +4,33 @@
 
 Threadline is a standalone visual reviewer. Give it a local directory containing Python source; it parses the files without installing, importing, or running the target project.
 
-## Install from a source checkout
+## Install from PyPI
 
-Python 3.12 or later is required.
+Python 3.12 or later is required. On Linux or macOS, create a virtual environment and install the published beta:
 
 ```bash
-cd /path/to/threadline
 python3 -m venv .venv
-.venv/bin/python -m pip install .
+.venv/bin/python -m pip install --pre threadline-review
 .venv/bin/threadline review /path/to/python-repository
 ```
 
+To update an existing installation, run `.venv/bin/python -m pip install --upgrade --pre threadline-review`.
+
 The last command prints and opens a local address, normally <http://127.0.0.1:4173/>. Use **Endpoints**, **Commands & tasks**, or **Modules & methods**. The search box finds items across all three pages. Endpoints has tabs for the HTTP verbs found in the repository. Choose a module to see its functions and methods; filter within that module, then select a method to open the existing workflow. Supported calls into other modules show the caller and target module names. The first page defaults to Endpoints when routes exist, then Commands & tasks, then Modules & methods. No method is selected automatically. One click opens the selected workflow and method. Route paths reflect declarations in source; runtime mounts and registration may add prefixes. Select a step to open the exact source while the surrounding flow remains visible.
+
+## Install from a source checkout
+
+For development or to try the bundled example:
+
+```bash
+git clone https://github.com/Raman369AI/threadline.git
+cd threadline
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/threadline review example
+```
+
+The `example` directory is included in the source repository. For a PyPI installation, point `threadline review` at your own Python source directory.
 
 ## Share this beta
 
@@ -29,7 +44,7 @@ They install and run it locally:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install threadline_review-0.2.0b1-py3-none-any.whl
+.venv/bin/python -m pip install threadline_review-0.2.0b2-py3-none-any.whl
 .venv/bin/threadline review /path/to/python-repository
 ```
 

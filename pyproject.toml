@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "threadline-review"
-version = "0.2.0b1"
+version = "0.2.0b2"
 description = "Visual, source-backed review of Python workflows before execution"
 readme = "README.md"
 requires-python = ">=3.12"

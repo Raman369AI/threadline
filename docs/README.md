@@ -9,11 +9,9 @@ Threadline helps you review Python source in a local browser before running it. 
 You need Python 3.12 or later, a modern browser, and a local Python repository. The target repository's dependencies are not required.
 
 ```bash
-git clone https://github.com/Raman369AI/threadline.git
-cd threadline
 python3 -m venv .venv
-.venv/bin/python -m pip install .
-.venv/bin/threadline review example
+.venv/bin/python -m pip install --pre threadline-review
+.venv/bin/threadline review /path/to/python-repository
 ```
 
 Open the local URL printed by Threadline. Use **Endpoints**, **Commands & tasks**, or **Modules & methods**. The search box finds items across all three pages. One click opens its workflow, steps, and original source.

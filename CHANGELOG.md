@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0b2 — 2026-09-18
+
+- Fix documentation and image links in the PyPI description with absolute URLs.
+- Lead with PyPI installation and module-first usage, and show the actual review interface.
+- Keep contributor checks in the contributor guide and document where the source example is available.
+- Check packaged README links during release validation.
+
 ## 0.2.0b1 — 2026-09-18
 
 - Separate Endpoints, Commands & tasks, and Modules & methods pages; filter endpoints by HTTP verb and pick a module before browsing its methods.

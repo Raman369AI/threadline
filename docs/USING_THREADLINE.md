@@ -50,16 +50,28 @@ python3 -m venv .venv
 
 No target-project installation or configuration is needed. Maintainers can follow the [PyPI publishing guide](PUBLISHING.md) to configure and publish package releases.
 
+## Read a method
+
+Each selected function or method opens with its name, file and line, and a plain summary built from its source, for example *"Takes project. Creates Project and Stage, calls seed_default_policies and can raise HTTPException. Returns ProjectResponse."* Three tabs follow, each with a count:
+
+- **Steps**: the method's statements. Select one to see its code on the right.
+- **Tests**: tests linked to the method (see below).
+- **Callers**: definitions in the analyzed source whose calls lead here. Select one to see the call beside this code.
+
+Calls are labeled **Calls** (one source target), **Probably calls** (a likely target that inheritance, decorators, or reassignment could change), **Library** (outside the repository), or **Can't tell** (decided at runtime). Probable links use dashed outlines. The **?** next to *Source only · not executed* opens this guide and the keyboard shortcuts.
+
+Selecting anything shows its code; **Go to →** opens that method. The path bar above the title lists how you got there; select any earlier method, or **← Back to caller**, to return. Keyboard: <kbd>/</kbd> search, <kbd>j</kbd>/<kbd>k</kbd> next or previous step, <kbd>s</kbd>/<kbd>t</kbd>/<kbd>c</kbd> switch tabs, <kbd>Backspace</kbd> back, <kbd>?</kbd> help.
+
 ## See related tests
 
-Every selected function or method shows a **Tests** section under its inputs and outputs. Each row names a test and why it is linked:
+The **Tests** tab names each test and why it is linked:
 
 - **Direct**: the test calls the method.
 - **Route**: for an endpoint, the test requests a matching path, such as `client.get("/orders/42")` for `/orders/{order_id}`.
 - **Indirect**: the test reaches the method through up to three other calls; the row shows the chain.
 - **Name match**: the test name contains the method name, but no call was linked.
 
-Links that depend on a possible call are labeled **possible**. Select a row to show the test source under the method source, with the linking call highlighted. **Open →** reviews the test's own flow. When a test is selected, the section lists the methods it exercises instead, including those reached through helpers in test files.
+Links that depend on a probable call are labeled **probably**. Select a row to show the test source under the method source, with the linking call highlighted. **Go to →** reviews the test's own flow. When a test is selected, the tab becomes **Exercises** and lists the methods the test calls, including those reached through helpers in test files.
 
 Tests are found in `test_*.py` and `*_test.py` files and in `tests/` or `test/` directories. They must be inside the analyzed source roots. Threadline does not run tests or measure coverage; a linked test is not evidence that a branch is exercised.
 

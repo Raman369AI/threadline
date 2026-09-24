@@ -10,6 +10,8 @@
 - Expand the independent semantic corpus and browser/CLI regressions.
 - Add typed response contracts and a scoped mypy gate for the schema, workflow projection, and structured CLI.
 - Show the tests linked to the selected method, and the methods a selected test exercises, with that source beside the method.
+- Open each method with a plain-language summary and Steps, Tests, and Callers tabs with counts; label calls Calls, Probably calls, Library, or Can't tell; add a path bar, a reading guide, keyboard shortcuts, and larger text.
+- Start the browser review only after every deferred script has run.
 
 ## 0.2.0b2 — 2026-09-18
 

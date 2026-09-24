@@ -14,7 +14,7 @@ from .service import SnapshotStore, ThreadlineError
 from .changes import review_changes
 
 ASSETS = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
-          '/workflow.js': ('workflow.js', 'text/javascript'), '/tests.js': ('tests.js', 'text/javascript'), '/styles.css': ('styles.css', 'text/css')}
+          '/workflow.js': ('workflow.js', 'text/javascript'), '/tests.js': ('tests.js', 'text/javascript'), '/method.js': ('method.js', 'text/javascript'), '/styles.css': ('styles.css', 'text/css')}
 
 
 class BoundedHTTPServer(ThreadingHTTPServer):
@@ -96,6 +96,7 @@ def make_server(root, host='127.0.0.1', port=4173, retention=2, base=None, sourc
                 if path == '/api/scope': return self.reply(200, pinned.get_scope(_one(query, 'symbol', required=True), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 20), shallow=_one(query, 'shallow') == '1'))
                 if path == '/api/branch': return self.reply(200, pinned.get_branch(_one(query, 'symbol', required=True), _one(query, 'operation', required=True), _int(query, 'arm', 0), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 20)))
                 if path == '/api/compare': return self.reply(200, pinned.compare_change(_one(query, 'symbol', required=True), snapshot_id=_one(query, 'snapshot'), side=_one(query, 'side', 'working'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 40)))
+                if path == '/api/overview': return self.reply(200, pinned.method_overview(_one(query, 'symbol', required=True), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 20)))
                 if path == '/api/tests': return self.reply(200, pinned.related_tests(_one(query, 'symbol', required=True), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 20)))
                 if path == '/api/diagnostics': return self.reply(200, pinned.diagnostics(snapshot_id=_one(query, 'snapshot'), category=_one(query, 'category', 'errors'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 25)))
                 if path == '/api/index':

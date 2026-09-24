@@ -98,25 +98,26 @@ async function showSelectedWorkflow() {
 function renderWorkflow() {
   const host=$('#workflowBrowser'),scroll=host.scrollTop;host.replaceChildren();
   const workflow=workflowState.profile;if(!workflow)return;
-  host.append(el('h2','workflow-title',workflow.title),el('p','workflow-intro',(workflow.description||'Select a source call to inspect its logic and original source.')+' Steps represent source syntax, not observed execution.'));
+  host.append(el('h2','workflow-title','Call map'),el('p','workflow-intro','Every call reachable from '+scopeName(workflow.root)+', nested under its caller.'));
   if(!workflow.stages.length){host.append(button('Build workflow for selected method →','workflow-primary-action',showSelectedWorkflow));host.scrollTop=scroll;return;}
   const list=el('div','workflow-stages');
   for(const [index,stage] of workflow.stages.entries()){
     if(stage.parent){
       const link=workflow.links.find(item=>item.to===stage.id),parent=workflow.stages.find(item=>item.id===stage.parent),group=el('div','workflow-nested-step');
       group.style.marginLeft=Math.min(stage.depth||1,3)*6+'px';
-      group.append(el('div','workflow-nest-label',(link?.kind==='possible_event'?'⋯ possible event route':'↳ call written in '+(parent?.label||'selected method'))),stageButton(stage,index));
-      if(link) group.append(button('Inspect connection evidence','workflow-link-evidence',()=>inspectWorkflowLink(link)));
+      if(link?.kind==='possible_event')group.append(el('div','workflow-nest-label','⋯ probably triggered by an event'));
+      group.append(stageButton(stage,index));
       list.append(group);
     }else list.append(stageButton(stage,index));
   }
   host.append(list);
-  host.append(el('p','source-peek',workflow.stages.length+' of '+workflow.totalStages+' steps · '+workflow.alternatives.length+' of '+workflow.totalAlternatives+' alternatives · '+workflow.uncertainties.length+' of '+workflow.totalUncertainties+' uncertainty records'));
+  const untraced=workflow.stages.filter(stage=>stage.status==='unknown').length;
+  host.append(el('p','source-peek',(workflow.nextCursor!==null?workflow.stages.length+' of ':'')+workflow.totalStages+' steps'+(untraced?' · '+untraced+" Threadline can't trace":'')));
   if(workflow.nextCursor!==null) {
-    const more=button(workflow.loading?'Loading…':'Load more workflow details','quiet-button',loadMoreWorkflow);
+    const more=button(workflow.loading?'Loading…':'Load more steps','quiet-button',loadMoreWorkflow);
     more.disabled=Boolean(workflow.loading);host.append(more);
   }
-  for(const [label,rows] of [['Control-flow alternatives',workflow.alternatives],['Uncertainty details',workflow.uncertainties]]) {
+  for(const [label,rows] of [['Decision points',workflow.alternatives],["Calls Threadline can't pin down",workflow.uncertainties]]) {
     if(!rows.length) continue;
     const details=el('details','workflow-provenance');details.append(el('summary','',label));
     for(const row of rows) {
@@ -125,20 +126,23 @@ function renderWorkflow() {
     }
     host.append(details);
   }
-  if(workflow.truncated) host.append(el('p','status unknown',workflow.omitted+' call sites or nested expansions omitted by safety limits (500 stages / 100 call levels).'));
+  if(workflow.truncated) host.append(el('p','status unknown',workflow.omitted+' more calls were left out to keep the map readable (limit: 500 steps, 100 levels deep).'));
   const note=el('details','workflow-provenance');note.append(el('summary','','How this workflow was built'),el('p','',workflow.provenance));host.append(note);
   host.scrollTop=scroll;
 }
 function stageButton(stage,index) {
   const scope=model.scopes[stage.scope],b=button('','workflow-stage'+(stage.id===workflowState.stage?' active':'')+(stage.unreachable?' unreachable':''),()=>selectWorkflowStage(stage.id));
   b.title=stage.condition+' · '+(scope?.qualified||stage.label);b.dataset.stage=stage.id;b.setAttribute('aria-pressed',String(stage.id===workflowState.stage));
-  b.append(el('span','workflow-stage-number',String(index+1).padStart(2,'0')),el('strong','workflow-stage-title',stage.label),el('code','workflow-stage-method',scope?.qualified||stage.label),...(stage.parent?[el('span','workflow-stage-data',stage.data)]:[]),el('span','workflow-stage-condition',stage.condition));
-  if(stage.unreachable)b.append(el('span','workflow-stage-warning','Unreachable after an unconditional exit'));
-  else if(stage.conditional)b.append(el('span','workflow-stage-warning','Runs only if its source condition allows it'));
-  if(stage.construction)b.append(el('span','workflow-stage-warning','Object construction · class body runs at definition time'));
-  if(stage.executionContext?.effectiveDeferred||stage.executionContext?.deferred)b.append(el('span','workflow-stage-warning','Deferred body · execution is not established'));
+  b.classList.add('link-'+(stage.status||'supported'));
+  const method=scope?.qualified||stage.label;
+  b.append(el('span','workflow-stage-number',String(index+1).padStart(2,'0')),el('strong','workflow-stage-title',stage.label));
+  // Unresolved calls sit in their caller's scope; naming it would read like a target.
+  if(!stage.callsite&&method!==stage.label)b.append(el('code','workflow-stage-method',method));
+  // One short note per step; the selected step's panel has the full detail.
+  const note=stage.unreachable?'Unreachable after an unconditional exit':stage.conditional?'Runs only if a condition holds':stage.construction?'Creates an object':(stage.executionContext?.effectiveDeferred||stage.executionContext?.deferred)?'Runs later, if at all':'';
+  if(note)b.append(el('span','workflow-stage-warning',note));
   if(stage.moduleLink)b.append(el('span','workflow-module-link',stage.moduleLink.from+' → '+stage.moduleLink.to));
-  if(stage.status&&!['supported','source-linked'].includes(stage.status)) b.append(el('span','status '+stage.status,stage.status==='possible'?'Possible target':stage.status==='unknown'?'Unknown target':stage.status==='external'?'External target':stage.status));
+  if(stage.status&&!['supported','source-linked'].includes(stage.status)) b.append(el('span','status '+stage.status,certaintyLabel(stage.status)));
   return b;
 }
 async function selectWorkflowStage(id) {
@@ -162,38 +166,43 @@ async function openWorkflowCandidate(stage,id) {
 function renderWorkflowContext() {
   const host=$('#workflowContext');host.replaceChildren();
   const workflow=workflowState.profile,stage=workflow?.stages.find(s=>s.id===workflowState.stage);if(!stage)return;
-  const index=workflow.stages.indexOf(stage);host.append(el('div','workflow-context-kicker','STEP '+(index+1)+' OF '+workflow.stages.length+' · '+stage.label));
+  const index=workflow.stages.indexOf(stage);
+  const kicker=el('div','workflow-context-kicker','STEP '+(index+1)+' OF '+workflow.totalStages);
+  if(stage.status&&!['supported','source-linked'].includes(stage.status))kicker.append(el('span','certainty '+stage.status,certaintyLabel(stage.status)));
+  host.append(kicker);
   const methods=stage.methods||[];
-  if(methods.includes(state.scope)&&state.scope===stage.scope&&!stage.construction) $('#scopeTitle').textContent=stage.label;
-  if(stage.unreachable)host.append(el('p','status unknown','This call is written after an unconditional exit in its source block.'));
-  if(stage.conditional)host.append(el('p','workflow-intro','This call is conditional. Its source relationship does not show that it executes.'));
+  if(stage.parent&&stage.data)host.append(el('p','workflow-context-data','Passes '+stage.data));
+  if(stage.unreachable)host.append(el('p','status unknown','Written after an unconditional exit, so it cannot run from here.'));
+  if(stage.conditional)host.append(el('p','workflow-intro','Runs only when its condition holds.'));
   for(const guard of stage.guards||[])host.append(el('p','workflow-context-data',workflowGuardText(guard)));
-  if(stage.executionContext?.effectiveDeferred||stage.executionContext?.deferred)host.append(el('p','workflow-intro','This body is deferred. Creating the deferred object does not establish that the body ran.'));
+  if(stage.executionContext?.effectiveDeferred||stage.executionContext?.deferred)host.append(el('p','workflow-intro','This body runs later, if at all; creating it does not run it.'));
   if(stage.reason && stage.status!=='supported')host.append(el('p','workflow-intro',stage.reason));
-  if(stage.construction)host.append(el('p','workflow-intro','Constructing an object does not rerun its class body. Initializer and metaclass dispatch may vary.'));
+  if(stage.construction)host.append(el('p','workflow-intro','Constructing an object runs its initializer, not its class body.'));
   const candidates=stage.construction?(stage.constructorCandidates||[]):stage.status==='possible'?methods:[];
   if(candidates.length) {
     const group=el('div','workflow-candidates');
-    group.append(el('p','',stage.construction?'Possible construction methods · open one with the caller pinned.':'Possible target methods · open one with the caller pinned.'));
-    for(const id of candidates)group.append(button('Inspect possible '+(stage.targetLabels?.[id]||model.scopes[id]?.qualified||id),'workflow-method',()=>openWorkflowCandidate(stage,id)));
+    group.append(el('p','',stage.construction?'Creating it probably runs:':'Probably calls one of:'));
+    for(const id of candidates)group.append(button('Go to '+(stage.targetLabels?.[id]||model.scopes[id]?.qualified||id)+' →','workflow-method',()=>openWorkflowCandidate(stage,id)));
     host.append(group);
   }
-  if(stage.candidateEvidence?.length) host.append(button('Why is this receiver a candidate?','workflow-link-evidence',()=>inspectWorkflowEvidence('Receiver candidate evidence','Source declarations suggest this type; runtime dispatch and assignment paths are not established.',stage.candidateEvidence)));
-  if(stage.construction && stage.scope) {
-    host.append(button('Inspect class definition source','scope-jump',()=>openWorkflowCandidate(stage,stage.scope)));
-  }
-  if(!methods.includes(state.scope)) host.append(el('div','workflow-inspected-method','Reading '+scopeName(state.scope)+' · '+stage.label+' stays selected.'));
+  const why=el('div','workflow-why');
+  if(stage.candidateEvidence?.length) why.append(button('Why is this receiver a candidate?','workflow-link-evidence',()=>inspectWorkflowEvidence('Why this receiver','The source suggests this type. What actually runs can differ.',stage.candidateEvidence)));
+  const link=workflow.links.find(item=>item.to===stage.id);
+  if(link) why.append(button('Why is this linked?','workflow-link-evidence',()=>inspectWorkflowLink(link)));
+  if(stage.construction && stage.scope) why.append(button('Go to class →','scope-jump',()=>openWorkflowCandidate(stage,stage.scope)));
+  if(why.childNodes.length)host.append(why);
+  if(!methods.includes(state.scope)) host.append(el('div','workflow-inspected-method',stage.callsite&&state.scope===(stage.callerScope||stage.evidence?.[0]?.scope)?'Showing '+scopeName(state.scope)+', where this call is written.':'The call map still has step '+(index+1)+' selected.'));
 }
 function syncWorkflowMethod() {
   if(workflowState.initialized&&workflowState.mode==='workflow') renderWorkflowContext();
 }
 function inspectWorkflowLink(link) {
-  const kind=link.kind==='possible_event'?'POSSIBLE EVENT ROUTE':'CALL SITE';
-  inspectWorkflowEvidence(link.label,link.description+'\nData: '+link.data+'\nConnection type: '+kind+' · '+link.status,link.evidence);
+  const kind=link.kind==='possible_event'?'Probable event route':'Call';
+  inspectWorkflowEvidence(link.label,kind+' · '+certaintyLabel(link.status)+'\n'+link.description+(link.data?'\nPasses: '+link.data:''),link.evidence);
 }
 function inspectWorkflowEvidence(title,description,evidence) {
   const previousScroll=$('.review').scrollTop;renderWorkflowContext();
-  const box=el('div','workflow-evidence'),head=el('div','workflow-evidence-head');head.append(el('strong','',title),button('Close evidence','workflow-close',()=>{renderWorkflowContext();$('.review').scrollTop=previousScroll;}));box.append(head,el('p','',description));
+  const box=el('div','workflow-evidence'),head=el('div','workflow-evidence-head');head.append(el('strong','',title),button('Close','workflow-close',()=>{renderWorkflowContext();$('.review').scrollTop=previousScroll;}));box.append(head,el('p','',description));
   const list=el('div','workflow-evidence-list');
   for(const proof of evidence) list.append(button(proof.label+' · L'+proof.span.start,'workflow-evidence-item',()=>{showSource(proof.span,title,proof.label+'\n'+description);list.querySelectorAll('button').forEach(b=>b.classList.remove('active'));announce(proof.label);}));
   box.append(list);if(!evidence.length)box.append(el('p','status unknown','No verified evidence in this snapshot.'));

@@ -211,7 +211,30 @@ def main():
                 check('live_announcements',any(any(prop['name']=='live' and prop['value'].get('value')=='polite' for prop in node.get('properties',[])) for node in visible))
             # Browser layout zoom, rather than a screenshot-only scale factor.
             driver.execute_script("document.documentElement.style.zoom='2'")
-            check('zoom_200_percent',js('document.documentElement.scrollWidth<=innerWidth'))
+            zoom_geometry=js("""(()=>{
+                const root=document.documentElement, body=document.body;
+                const rect=element=>{const box=element.getBoundingClientRect();return {left:box.left,right:box.right,width:box.width}};
+                const clipped=element=>{
+                    for(let parent=element.parentElement;parent&&parent!==body;parent=parent.parentElement){
+                        const overflow=getComputedStyle(parent).overflowX;
+                        if(['auto','scroll','hidden','clip'].includes(overflow)&&parent.getBoundingClientRect().right<=innerWidth+1)return true;
+                    }
+                    return false;
+                };
+                const pastViewport=[...document.querySelectorAll('body *')].filter(element=>{
+                    return element.getClientRects().length&&element.getBoundingClientRect().right>innerWidth+1&&!clipped(element);
+                }).slice(0,15).map(element=>({element:element.tagName.toLowerCase()+(element.id?'#'+element.id:'')+(element.classList.length?'.'+[...element.classList].slice(0,2).join('.'):''),...rect(element)}));
+                const workspace=document.querySelector('.workspace');
+                return {innerWidth,outerWidth,visualViewportWidth:visualViewport?visualViewport.width:null,
+                    rootScrollWidth:root.scrollWidth,bodyScrollWidth:body.scrollWidth,
+                    root:rect(root),body:rect(body),workspace:rect(workspace),
+                    workspaceColumns:getComputedStyle(workspace).gridTemplateColumns,
+                    narrowMedia:matchMedia('(max-width:850px)').matches,pastViewport};
+            })()""")
+            check('zoom_200_percent',zoom_geometry['rootScrollWidth']<=zoom_geometry['innerWidth'])
+            if not checks['zoom_200_percent']:
+                print(json.dumps({'zoomGeometry':zoom_geometry},indent=2))
+                driver.save_screenshot(str(args.report.with_name(args.report.stem+'-zoom.png')))
             audit('zoom_200_percent')
             driver.execute_script("document.documentElement.style.zoom=''")
             js("(async()=>{window.__originalFetch=fetch;window.fetch=async(...args)=>{if(String(args[0]).includes('/api/starts')){window.fetch=window.__originalFetch;throw new Error('Temporary search failure');}return window.__originalFetch(...args);};document.querySelector('#search').value='place_order';await navigation();})()")
@@ -222,7 +245,7 @@ def main():
             check('keyboard_error_retry',True)
             check('source_view_remains_usable',js("!document.querySelector('#flow .error')"))
             report={'browser':driver.capabilities.get('browserName'),'version':driver.capabilities.get('browserVersion'),
-                    'platform':sys.platform,'viewports':viewports,'checks':checks,'audits':audits,'passed':all(checks.values()),
+                    'platform':sys.platform,'viewports':viewports,'zoomGeometry':zoom_geometry,'checks':checks,'audits':audits,'passed':all(checks.values()),
                     'scope':'Automated keyboard, accessibility-tree, axe and reflow checks; no claim of a human screen-reader session.'}
             args.report.write_text(json.dumps(report,indent=2)+'\n')
             print(json.dumps({'browser':report['browser'],'version':report['version'],'checks':checks,'report':str(args.report)},indent=2))

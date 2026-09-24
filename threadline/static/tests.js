@@ -1,7 +1,7 @@
 'use strict';
 // Related tests for the selected method, and a second code pane that shows a
 // test (or the code a test exercises) beside the method's own source.
-let testsRequest = 0, pairRequest = 0;
+let testsRequest = 0, pairRequest = 0, testsShown = null;
 const relationLabels = {direct:'Direct', route:'Route', indirect:'Indirect', name:'Name match'};
 
 function closePair() {
@@ -12,8 +12,11 @@ function closePair() {
 }
 
 async function loadTests(id, cursor=0) {
-  const host = $('#testsPanel'), request = ++testsRequest, captured = model, scope = model.scopes[id];
-  if (cursor === 0) closePair();
+  const host = $('#testsPanel'), scope = model.scopes[id];
+  // Opening a workflow selects its entry method again; keep the list and any open test.
+  if (cursor === 0 && testsShown?.model === model && testsShown.id === id) return;
+  const request = ++testsRequest, captured = model;
+  if (cursor === 0) { closePair(); testsShown = {model, id}; }
   host.hidden = !scope || ['module', 'class'].includes(scope.kind);
   if (host.hidden) return;
   if (cursor === 0) host.replaceChildren(el('p', 'source-peek', 'Finding related tests…'));
@@ -22,7 +25,9 @@ async function loadTests(id, cursor=0) {
     if (request !== testsRequest || captured !== model || state.scope !== id) return;
     renderTests(host, id, result, cursor);
   } catch (error) {
-    if (request === testsRequest && captured === model) host.replaceChildren(el('p', 'error', error.message), button('Retry', 'quiet-button', () => loadTests(id, cursor)));
+    if (request !== testsRequest || captured !== model) return;
+    if (cursor === 0) testsShown = null;
+    host.replaceChildren(el('p', 'error', error.message), button('Retry', 'quiet-button', () => loadTests(id, cursor)));
   }
 }
 

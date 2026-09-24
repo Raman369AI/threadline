@@ -315,6 +315,9 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             if js("document.querySelector('#methodName').textContent==='test_entry_reads_repo' && document.querySelector('#testsPanel').textContent.includes('Service.entry')"):break
             time.sleep(.02)
         checks['selected_test_lists_exercised_code']=js("document.querySelector('#testsPanel').textContent.includes('This test exercises') && document.querySelector('#testsPanel').textContent.includes('Service.entry') && document.querySelector('#pairPane').hidden")
+        # Opening a test selects it again for its workflow entry; the list must not reload.
+        js("(async()=>{await selectWorkflowStage('entry');})()")
+        checks['reselecting_method_keeps_tests']=js("performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/tests?symbol='+encodeURIComponent(state.scope))).length===1 && document.querySelector('#testsPanel').textContent.includes('This test exercises')")
         js("(async()=>{const rows=await api('/api/symbols',{q:'unreachable',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='unreachable').id);await showSelectedWorkflow();})()")
         checks['unreachable_workflow_stage_marked']=js("[...document.querySelectorAll('.workflow-stage.unreachable')].some(b=>b.textContent.includes('Unreachable'))")
         js("(async()=>{const rows=await api('/api/symbols',{q:'conditional',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='conditional').id);await showSelectedWorkflow();})()")

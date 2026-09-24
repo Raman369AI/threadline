@@ -4,7 +4,7 @@
 
 Earlier engineering gates passed in [CI run 34922515651](https://github.com/Raman369AI/threadline/actions/runs/34922515651) for commit `8c9d088`.
 The maintainer owns reviewer-session results and the final stable release decision.
-Version `0.2.0b2` is a beta prerelease; the three reviewer sessions remain pending.
+Version `0.2.0b3` is a beta prerelease; the three reviewer sessions remain pending.
 Each candidate must pass its own automated checks.
 
 ## Supported release target

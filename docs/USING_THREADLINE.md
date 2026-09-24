@@ -44,7 +44,7 @@ They install and run it locally:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install threadline_review-0.2.0b2-py3-none-any.whl
+.venv/bin/python -m pip install threadline_review-0.2.0b3-py3-none-any.whl
 .venv/bin/threadline review /path/to/python-repository
 ```
 

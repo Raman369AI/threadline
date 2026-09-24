@@ -2,10 +2,27 @@
 
 [Documentation home](README.md) · [Project home](../README.md)
 
-Validated on 2026-09-14 (America/Chicago). [The complete CI run](https://github.com/Raman369AI/threadline/actions/runs/34922515651) passed for application/test commit `8c9d088` (see the run for the full SHA).
-The maintainer owns the three first-time reviewer sessions; the remaining engineering gates are complete.
+The record below describes the 2026-09-14 validation of commit `8c9d088`, not the
+current checkout. [That CI run](https://github.com/Raman369AI/threadline/actions/runs/34922515651) passed. The current candidate has local checks recorded below; its cross-platform matrix and three first-time reviewer sessions remain pending.
 
-## Self-contained verification
+## Implementation candidate — 2026-09-23
+
+The implementation candidate passed 109 Python tests, the standalone 23-case curated
+semantic corpus (zero false-supported cases, ten unresolved), both browser JavaScript
+syntax checks, normal and Git-change Chromium smoke suites, Chrome accessibility
+automation, and a clean-wheel install/CLI/server/assets smoke. The semantic counts
+describe only the curated fixtures. A repeatable synthetic memory profile is recorded
+in [performance and resource budgets](PERFORMANCE.md).
+The scoped mypy check for the schema, workflow projection, and structured CLI also
+passed locally.
+
+All seven pinned public-source cases passed their local time/RSS budgets with no target
+imports or target working-tree changes. Their candidate measurements appear in
+[performance and resource budgets](PERFORMANCE.md). The Linux/macOS Python matrix,
+native Safari, and three uncoached reviewer sessions have not been rerun for this
+implementation candidate. No stable release claim follows from these local checks.
+
+## Historical self-contained verification — commit `8c9d088`
 
 - 51 tests passed in each Linux/macOS × Python 3.12/3.13/3.14 matrix job.
 - Both browser JavaScript syntax checks passed.
@@ -25,7 +42,7 @@ snapshots, concurrent and failed refresh, Host/token checks, HTTP response/concu
 bounds, namespace imports, conservative dispatch, Git baseline scope and rename handling,
 quoted filenames, edits during change review, and workflow continuation/depth limits.
 
-## Public corpus measurements
+## Historical public corpus measurements — commit `8c9d088`
 
 Each repository ran in an isolated process. Analysis excludes Git fetch; peak RSS covers
 the validation worker. Budgets are provisional engineering limits, not reviewer-derived
@@ -51,9 +68,9 @@ Three uncoached reviewer sessions remain pending under
 [the documented protocol](REVIEWER_SESSIONS.md). Performance budgets remain provisional
 until reviewed against that feedback.
 
-Linux/macOS, Safari, keyboard operation, reflow/zoom, accessibility semantics, installation,
-and corpus checks are now verified. The application remains at its existing alpha package
-version pending release sign-off.
+Linux/macOS, Safari, keyboard operation, reflow/zoom, accessibility semantics,
+installation, and corpus checks were verified for the historical commit above. The
+current package is beta version `0.2.0b2`; stable release sign-off remains pending.
 
 See [the release checklist](RELEASE_CHECKLIST.md). Automated evidence checks do not prove
 runtime correctness or constitute a human screen-reader session.

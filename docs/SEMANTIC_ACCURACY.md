@@ -19,12 +19,14 @@ exact source evidence. An incorrect **supported** relationship fails the gate se
 from other mismatches. Unknown targets are measured, even where the expectation allows
 them conservatively.
 
-The initial 14-case run reports zero incorrect supported relationships, seven unknown
+The initial 14-case run reported zero incorrect supported relationships, seven unknown
 calls, and three supported resolutions among four annotated direct targets. The local
-assignment alias remains unknown. This small curated corpus is not a general accuracy
-percentage, an execution trace, or a complete semantic oracle. Inheritance and callback
-examples allow uncertainty; passing them does not mean those dispatch mechanisms are
-fully resolved.
+assignment alias remained unknown in that historical run. The expanded corpus now
+includes common object-oriented calls, lexical binding, and execution-context cases.
+Its current counts come from the generated JSON report, not the earlier run. This small
+curated corpus is not a general accuracy percentage, an execution trace, or a complete
+semantic oracle. Inheritance and callback examples allow uncertainty; passing them does
+not mean those dispatch mechanisms are fully resolved.
 
 When adding a case, write the source expectation and its rationale before inspecting
 analyzer output. Do not relax certainty or target bounds merely to make a test pass.

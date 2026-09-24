@@ -280,6 +280,90 @@
           "directTarget": false
         }
       ]
+    },
+    {
+      "name": "constructor injected dependency candidate",
+      "files": {
+        "app.py": "class Repo:\n    def get(self, key): return key\nclass Service:\n    def __init__(self, repo: Repo): self.repo = repo\n    def entry(self, key): return self.repo.get(key)\n"
+      },
+      "checks": [
+        {
+          "scope": "Service.entry",
+          "call": "self.repo.get",
+          "allowedStatuses": ["possible"],
+          "allowedTargets": ["app.py:Repo.get"],
+          "requiredTargets": ["app.py:Repo.get"],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "inherited and chained constructor candidates",
+      "files": {
+        "app.py": "class Base:\n    def helper(self): return 1\nclass Repo:\n    def get(self): return 2\nclass Service(Base):\n    def entry(self):\n        self.helper()\n        return Repo().get()\n"
+      },
+      "checks": [
+        {
+          "scope": "Service.entry",
+          "call": "self.helper",
+          "allowedStatuses": ["possible"],
+          "allowedTargets": ["app.py:Base.helper"],
+          "requiredTargets": ["app.py:Base.helper"],
+          "directTarget": false
+        },
+        {
+          "scope": "Service.entry",
+          "call": "Repo().get",
+          "allowedStatuses": ["possible"],
+          "allowedTargets": ["app.py:Repo.get"],
+          "requiredTargets": ["app.py:Repo.get"],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "dotted imported constructor candidate",
+      "files": {
+        "pkg/repo.py": "class Repo:\n    def get(self): return 1\n",
+        "app.py": "import pkg.repo\ndef entry(): return pkg.repo.Repo().get()\n"
+      },
+      "checks": [
+        {
+          "scope": "entry",
+          "call": "pkg.repo.Repo().get",
+          "allowedStatuses": ["possible"],
+          "allowedTargets": ["pkg/repo.py:Repo.get"],
+          "requiredTargets": ["pkg/repo.py:Repo.get"],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "class namespace is not method lexical scope",
+      "files": {
+        "app.py": "class Example:\n    def helper(self): return 1\n    def entry(self): return helper()\n"
+      },
+      "checks": [
+        {
+          "scope": "Example.entry",
+          "call": "helper",
+          "allowedStatuses": ["unknown"],
+          "allowedTargets": [],
+          "directTarget": false
+        }
+      ]
+    },
+    {
+      "name": "local binding constructs shadow global names",
+      "files": {
+        "app.py": "def helper(): return 1\ndef loop(values):\n    for helper in values: helper()\ndef context(ctx):\n    with ctx as helper: helper()\ndef unpack(values):\n    helper, other = values\n    return helper()\ndef walrus(callback):\n    if helper := callback: return helper()\n"
+      },
+      "checks": [
+        {"scope": "loop", "call": "helper", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false},
+        {"scope": "context", "call": "helper", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false},
+        {"scope": "unpack", "call": "helper", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false},
+        {"scope": "walrus", "call": "helper", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
+      ]
     }
   ]
 }

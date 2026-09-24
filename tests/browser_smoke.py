@@ -24,16 +24,29 @@ for source in (ROOT/'example').glob('*.py'): shutil.copyfile(source,fixture_root
 (fixture_root/'progressive.py').write_text('def leaf(value):\n    return value\ndef progressive(value):\n'+''.join('    leaf(value)\n' for _ in range(65))+'    if value:\n'+''.join(f'        value += {i}\n' for i in range(55))+'    return value\n')
 (fixture_root/'cli_demo.py').write_text('def main():\n    return 0\n')
 (fixture_root/'routes_demo.py').write_text('from fastapi import APIRouter\nrouter = APIRouter(prefix="/api")\n@router.post("/tasks")\ndef create_task():\n    return {}\n@router.get("/tasks")\ndef list_tasks():\n    return []\n')
+(fixture_root/'oo_review.py').write_text(
+    'class Repo:\n'
+    '    def __init__(self):\n        pass\n'
+    '    def get(self):\n        return 1\n'
+    'class Service:\n'
+    '    def __init__(self, repo: Repo):\n        self.repo = repo\n'
+    '    def entry(self):\n        return self.repo.get()\n'
+    'def conditional(flag):\n    return Repo().get() if flag else 0\n'
+    'def unreachable():\n    return 0\n    Repo().get()\n'
+    'def built():\n    return Repo()\n'
+)
 (fixture_root/'pyproject.toml').write_text('[project.scripts]\ndemo="cli_demo:main"\n')
 change_review='--changes' in sys.argv
 if change_review:
     (fixture_root/'deleted.py').write_text('def removed(value):\n    return value\n')
     (fixture_root/'impact.py').write_text('from deleted import removed\ndef still_calls(value):\n    return removed(value)\n')
     (fixture_root/'changed.py').write_text(''.join(f'def changed_{i}():\n    return {i}\n' for i in range(35)))
+    (fixture_root/'constants.py').write_text('FEE = 1\ndef total(value):\n    return value * FEE\n')
     for args in (['init','-q'], ['config','user.email','test@example.invalid'], ['config','user.name','Test'], ['add','.'], ['commit','-qm','baseline']):
         subprocess.run(['git',*args],cwd=fixture_root,check=True)
     (fixture_root/'deleted.py').unlink()
     (fixture_root/'changed.py').write_text(''.join(f'def changed_{i}():\n    return {i+100}\n' for i in range(35)))
+    (fixture_root/'constants.py').write_text('FEE = 2\ndef total(value):\n    return value * FEE\n')
 server=make_server(fixture_root,port=0,base='HEAD' if change_review else None);worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
 port=server.server_address[1]
 with socket.socket() as probe:
@@ -107,6 +120,15 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         checks['changes_tab_availability']=js("document.querySelector('#changesTab').hidden==="+json.dumps(not change_review))
         if change_review:
             js("document.querySelector('#changesTab').click()")
+            for _ in range(100):
+                if js("document.querySelector('[data-category=unassessedChanges]').textContent.includes('constants.py')"):break
+                time.sleep(.02)
+            checks['changed_files_and_unassessed_constant_visible']=js("document.querySelector('[data-category=files]').textContent.includes('constants.py') && document.querySelector('[data-category=unassessedChanges]').textContent.includes('constants.py')")
+            js("[...document.querySelectorAll('[data-category=unassessedChanges] .change-record')].find(r=>r.textContent.includes('Working source')&&r.textContent.includes('constants.py')).querySelector('button').click()")
+            for _ in range(100):
+                if js("document.querySelector('#sourceCode').textContent.includes('FEE = 2')"):break
+                time.sleep(.02)
+            checks['unassessed_change_opens_exact_source']=js("document.querySelector('#sourceCode').textContent.includes('FEE = 2')")
             for _ in range(100):
                 if js("document.querySelectorAll('[data-category=changedMethods] .change-record').length===25"):break
                 time.sleep(.02)
@@ -184,7 +206,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             if js("document.querySelectorAll('#flow .operation').length===40"):break
             time.sleep(.02)
         checks['method_continuation']=js("document.querySelectorAll('#flow .operation').length===40")
-        js("(async()=>{const result=await api('/api/symbols',{q:'progressive',snapshot:model.snapshotId});const scope=result.symbols.items.find(s=>s.name==='progressive');await chooseScope(scope.id);window.__workflowStart=performance.now();await showSelectedWorkflow();window.__firstWorkflowMs=performance.now()-window.__workflowStart;})()")
+        js("(async()=>{const result=await api('/api/symbols',{q:'progressive',snapshot:model.snapshotId});const scope=result.symbols.items.find(s=>s.name==='progressive');const start=performance.now();await chooseScope(scope.id);window.__methodAndSourceMs=performance.now()-start;window.__workflowStart=performance.now();await showSelectedWorkflow();window.__firstWorkflowMs=performance.now()-window.__workflowStart;})()")
         checks['workflow_first_page_only']=js("workflowState.profile.stages.length===20 && workflowState.profile.nextCursor===20 && workflowState.profile.totalStages===66")
         js("loadMoreWorkflow()")
         checks['workflow_continuation']=js("workflowState.profile.stages.length===40 && workflowState.profile.nextCursor===40")
@@ -200,7 +222,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             if js("document.querySelectorAll('#flow details.branch .operation').length===40"):break
             time.sleep(.02)
         checks['branch_continuation']=js("document.querySelectorAll('#flow details.branch .operation').length===40")
-        (Path(tempfile.gettempdir())/('threadline-changes-performance.json' if change_review else 'threadline-browser-performance.json')).write_text(json.dumps(js("({workflowFirstPageMs:window.__firstWorkflowMs,branchFirstPageMs:window.__branchFirstMs})"),indent=2)+'\n')
+        (Path(tempfile.gettempdir())/('threadline-changes-performance.json' if change_review else 'threadline-browser-performance.json')).write_text(json.dumps(js("({methodAndSourceMs:window.__methodAndSourceMs,workflowFirstPageMs:window.__firstWorkflowMs,branchFirstPageMs:window.__branchFirstMs})"),indent=2)+'\n')
         js("load(true)")
         checks['authorized_browser_refresh']=js("!document.querySelector('#flow .error') && !document.querySelector('#refreshButton').disabled")
         # Inject transient request failures, then recover through the visible UI.
@@ -253,6 +275,45 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         (fixture_root/'pyproject.toml').unlink()
         js("(async()=>{history.replaceState(null,'',location.pathname);await load(true);})()")
         checks['methods_default_without_entrypoints']=js("catalogPage==='methods' && workflowState.mode==='starts'")
+        if change_review:
+            js("document.querySelector('#changesTab').click()")
+            for _ in range(100):
+                if js("document.querySelector('[data-category=unassessedChanges]').textContent.includes('pyproject.toml')"):break
+                time.sleep(.02)
+            checks['configuration_deletion_visible_as_unassessed']=js("document.querySelector('[data-category=files]').textContent.includes('pyproject.toml') && document.querySelector('[data-category=unassessedChanges]').textContent.includes('pyproject.toml')")
+            js("[...document.querySelectorAll('[data-category=unassessedChanges] .change-record')].find(r=>r.textContent.includes('pyproject.toml')&&r.textContent.includes('Baseline')).querySelector('button').click()")
+            for _ in range(100):
+                if js("document.querySelector('#sourceCode').textContent.includes('[project.scripts]')"):break
+                time.sleep(.02)
+            checks['configuration_baseline_source_opens']=js("document.querySelector('#sourceCode').textContent.includes('[project.scripts]')")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'Service.entry',snapshot:model.snapshotId});window.__ooEntry=rows.symbols.items.find(s=>s.name==='entry').id;await chooseScope(window.__ooEntry);await showSelectedWorkflow();window.__ooStage=workflowState.profile.stages.find(s=>s.status==='possible'&&s.targetLabels&&Object.values(s.targetLabels).some(n=>n.endsWith('Repo.get')));await selectWorkflowStage(window.__ooStage.id);})()")
+        checks['possible_workflow_target_requires_explicit_open']=js("state.scope===window.__ooEntry && [...document.querySelectorAll('.workflow-candidates button')].some(b=>b.textContent.includes('Repo.get'))")
+        checks['receiver_candidate_provenance_visible']=js("[...document.querySelectorAll('#workflowContext button')].some(b=>b.textContent.includes('Why is this receiver a candidate?')) && window.__ooStage.candidateEvidence?.some(p=>p.evidenceId && p.label && p.span)")
+        js("[...document.querySelectorAll('.workflow-candidates button')].find(b=>b.textContent.includes('Repo.get')).click()")
+        for _ in range(100):
+            if js("state.scope!==window.__ooEntry && document.querySelector('.caller-strip')!==null"):break
+            time.sleep(.02)
+        checks['possible_target_keeps_caller_return']=js("state.scope!==window.__ooEntry && document.querySelector('.caller-strip')?.textContent.includes('Back to caller')")
+        js("document.querySelector('.caller-strip button').click()")
+        for _ in range(100):
+            if js("state.scope===window.__ooEntry"):break
+            time.sleep(.02)
+        checks['possible_target_returns_to_callsite']=js("state.scope===window.__ooEntry")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'unreachable',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='unreachable').id);await showSelectedWorkflow();})()")
+        checks['unreachable_workflow_stage_marked']=js("[...document.querySelectorAll('.workflow-stage.unreachable')].some(b=>b.textContent.includes('Unreachable'))")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'conditional',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='conditional').id);await showSelectedWorkflow();})()")
+        checks['conditional_workflow_stage_marked']=js("[...document.querySelectorAll('.workflow-stage')].some(b=>b.textContent.includes('Runs only if'))")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'built',snapshot:model.snapshotId});window.__built=rows.symbols.items.find(s=>s.name==='built').id;await chooseScope(window.__built);await showSelectedWorkflow();const stage=workflowState.profile.stages.find(s=>s.construction);await selectWorkflowStage(stage.id);})()")
+        checks['construction_does_not_open_class_body_as_call']=js("state.scope===window.__built && document.querySelector('#workflowContext').textContent.includes('Constructing an object') && document.querySelector('#workflowContext').textContent.includes('Inspect possible Repo.__init__')")
+        (fixture_root/'broken.py').write_text('def incomplete(:\n')
+        js("load(true)")
+        checks['parse_failure_prominent_and_retrievable']=js("!document.querySelector('#analysisStatus').hidden && document.querySelector('#analysisStatus').textContent.includes('1 analysis issue') && document.querySelector('#coveragePanel').textContent.includes('Analysis issues · 1')")
+        js("document.querySelector('#analysisStatus').click()")
+        checks['parse_failure_badge_opens_coverage']=js("!document.querySelector('#coveragePanel').hidden")
+        (fixture_root/'broken.py').unlink()
+        (fixture_root/'pyproject.toml').write_bytes(b'\xff')
+        js("load(true)")
+        checks['configuration_error_prominent']=js("!document.querySelector('#analysisStatus').hidden && document.querySelector('#analysisStatus').textContent.includes('1 analysis issue') && document.querySelector('#coveragePanel').textContent.includes('Analysis issues · 1')")
         print(json.dumps(checks,indent=2))
         if not all(checks.values()): raise SystemExit(1)
         ws.close()

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Resolve common constructor-injected, inherited, dotted-module, and constructed-object method candidates conservatively; correct lexical shadowing, explicit receiver bindings, and nested call identity.
+- Keep Python 3.12 lazy type-alias value calls distinct from class-definition execution.
+- Preserve expression guards, unreachable source, deferred execution context, and construction-time limits across workflow views.
+- Separate rename-only records and edits outside callable bodies; improve snapshot identity and before/after symbol pairing while keeping uncertain impact explicit.
+- Add snapshot-pinned structured CLI queries for diagnostics, symbols, methods, workflows, branches, source evidence, and paged changes, with completeness and schema metadata.
+- Expand the independent semantic corpus and browser/CLI regressions.
+- Add typed response contracts and a scoped mypy gate for the schema, workflow projection, and structured CLI.
+
 ## 0.2.0b2 — 2026-09-18
 
 - Fix documentation and image links in the PyPI description with absolute URLs.

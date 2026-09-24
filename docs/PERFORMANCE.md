@@ -18,6 +18,28 @@ source evidence. `tests/online_repositories.json` is the executable budget speci
 The worker is terminated after 120 seconds. Time limits can vary with CI hardware;
 investigate failures before changing a budget.
 
+The 2026-09-23 implementation candidate passed all seven pinned cases. These
+single-process observations are diagnostic and not a latency guarantee:
+
+| Repository | Analysis | Query sequence | Peak RSS |
+| --- | ---: | ---: | ---: |
+| Flask | 0.581 s | 0.024 s | 40.5 MiB |
+| Requests | 0.454 s | 0.021 s | 36.6 MiB |
+| FastAPI | 2.001 s | 0.073 s | 96.8 MiB |
+| Celery | 4.393 s | 0.176 s | 163.4 MiB |
+| Django | 15.012 s | 0.593 s | 518.3 MiB |
+| OpenTelemetry | 1.161 s | 0.052 s | 63.7 MiB |
+| Pants | 26.001 s | 0.876 s | 760.7 MiB |
+
+Git baseline materialization was timed separately on three clean pinned checkouts,
+using the same source-root and exclusion options as the corpus. After analysis,
+`review_changes(..., base='HEAD')` took 0.722 seconds on Flask, 21.545 seconds on
+Django, and 35.949 seconds on Pants; each produced zero changed-file records. These
+single runs include Git object loading and comparison, not checkout or analysis time.
+The baseline path still issues per-file Git requests, so large-repository change
+review has a measurable startup cost even when nothing changed. Keep the existing
+60-second aggregate Git budget visible until a measured batch-loading change is ready.
+
 ## Application bounds
 
 - Source: 2 MiB per file, 64 MiB total Python source, 10,000 Python files, 2 million AST nodes.
@@ -48,13 +70,49 @@ rejected. No target imports, dependency installation, or source execution are pe
 
 ## Interactive measurements
 
-`python tests/browser_smoke.py` records `workflowFirstPageMs` and `branchFirstPageMs`
+`python tests/browser_smoke.py` records `methodAndSourceMs`, `workflowFirstPageMs`,
+and `branchFirstPageMs`
 in the system temporary directory as `threadline-browser-performance.json`.
 The `--changes` variant writes `threadline-changes-performance.json`. These use a
 synthetic 65-call workflow and a 55-statement branch; timings include browser rendering
 and automation observation overhead. They are diagnostic measurements, not reviewer
 acceptance thresholds or representative results for every repository.
+`methodAndSourceMs` ends after the selected method and its initial source excerpt are
+visible; it does not include symbol search latency. Two local Chromium runs on
+2026-09-23 measured 12.7 ms (ordinary smoke) and 14.2 ms (change-review smoke) for
+that fixture. These are single diagnostic observations, not latency guarantees.
 
 Comparisons return at most 40 original lines per side in the browser. Source is pinned
 to the working and baseline snapshots; pages advance by relative line offset and do
 not align moved statements or infer semantic equivalence.
+
+## Current synthetic memory profile
+
+Run `python3 tests/profile_snapshot_memory.py` to regenerate a source-only service
+fixture with 40 Python files, 960 definitions, 2,480 calls, and 89,280 source bytes.
+The final local run on Linux/Python 3.12.3 measured these phase wall times, process
+CPU times, and `tracemalloc` peaks:
+
+| Phase | Wall | CPU | Traced peak |
+| --- | ---: | ---: | ---: |
+| Discovery and parsing | 0.679 s | 0.678 s | 12.16 MiB |
+| Initial refresh | 2.421 s | 2.418 s | 22.60 MiB |
+| Catalog rebuild | 0.031 s | 0.031 s | 22.86 MiB |
+| Cold workflow generation | 0.003 s | 0.003 s | 13.28 MiB |
+| 100 cached workflow responses | 0.043 s | 0.043 s | 13.26 MiB |
+| Summary, scope, and source queries | 0.001 s | 0.001 s | 13.27 MiB |
+| Workflow response serialization | 0.002 s | 0.002 s | 13.27 MiB |
+| 25 pinned reads during refresh | 0.022 s | 0.022 s | 25.37 MiB |
+| Refresh retaining prior snapshot | 2.530 s | 2.526 s | 35.68 MiB |
+| Git change review | 2.847 s | 2.720 s | 112.64 MiB |
+| Retained-model serialization | 0.252 s | 0.252 s | 59.38 MiB |
+
+The pinned reads completed while refresh was still pending. Traced peaks include
+already-live shared-process allocations and are not incremental phase costs. Process
+high-water RSS before model serialization was 147.81 MiB in this run; earlier runs
+varied substantially, so it is not a stable per-request cost. Traced allocations,
+serialized JSON, and process RSS measure different things. The model serialized to
+5,595,766 bytes, a workflow response to 12,794 bytes, and the workflow cache held
+12,565 serialized bytes after the query set. The profiler prints JSON lines for
+each phase. This synthetic fixture is diagnostic,
+not a population estimate or a replacement for the pinned public corpus.

@@ -21,6 +21,7 @@ Issues = "https://github.com/Raman369AI/threadline/issues"
 
 [project.optional-dependencies]
 browser-test = ["websocket-client>=1.7,<2", "selenium>=4.35,<5"]
+typecheck = ["mypy>=1.16,<2"]
 
 [project.scripts]
 threadline = "threadline.cli:main"

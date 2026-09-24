@@ -11,6 +11,7 @@ git clone https://github.com/YOUR-USERNAME/threadline.git
 cd threadline
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[browser-test]'
+npm ci --prefix tests/browser-tools --ignore-scripts --no-audit --no-fund
 ```
 
 Start the bundled example:
@@ -41,9 +42,21 @@ Avoid full-repository graphs, modal navigation, dense tables, and controls that 
 python3 -m unittest discover -v
 node --check threadline/static/app.js
 node --check threadline/static/workflow.js
+python3 -m pip install '.[typecheck]'
+python3 -m mypy --follow-imports=skip --check-untyped-defs threadline/schema.py threadline/workflows.py threadline/agent_cli.py
 python3 tests/browser_smoke.py
+python3 tests/browser_smoke.py --changes
+python3 tests/browser_accessibility.py
 python3 -m pip wheel . --no-deps --wheel-dir dist
+python3 tests/release_smoke.py dist/*.whl
 ```
+
+`python -m unittest discover` finds the root `test_*.py` unit and service tests.
+The `tests/` directory holds executable browser, accessibility, package, public-corpus,
+and memory-profile checks plus source fixtures. Run
+`python3 tests/profile_snapshot_memory.py` for a diagnostic synthetic profile; its
+numbers are not release budgets. Keep assertions about target relationships independent
+of analyzer output in `tests/semantic_cases.json`.
 
 The public-repository corpus requires network access and is intentionally separate from the fast suite:
 
@@ -67,7 +80,8 @@ By contributing, you agree that your contribution is licensed under the reposito
 - `threadline/server.py` serves the loopback browser and allowlisted API routes.
 - `threadline/static/` contains the browser interface.
 - `threadline/changes.py` reviews Git changes without checking out target revisions.
-- `threadline/cli.py` exposes `review`, `inspect`, and `changes`.
+- `threadline/cli.py` and `threadline/agent_cli.py` expose browser startup and
+  versioned, snapshot-pinned structured queries.
 
 Keep repository-specific behavior out of the engine and interface. Add general analysis rules with self-contained fixtures.
 

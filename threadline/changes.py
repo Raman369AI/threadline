@@ -1,6 +1,7 @@
 """Static Git change review with external diff and text conversion disabled."""
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 import tempfile
@@ -21,7 +22,8 @@ def review_changes(root: str | Path, base: str = 'HEAD', files: list[str] | None
     if files is not None:
         allowed = {Path(name).as_posix() for name in files}
         statuses = [row for row in statuses if row['path'] in allowed or row.get('oldPath') in allowed]
-    current_store = store or SnapshotStore(root); current = current_store.current
+    current_store = store or SnapshotStore(root)
+    current = current_store.current
     source_roots = current['analysisOptions']['sourceRoots']
     exclusions = current['analysisOptions']['exclude']
     started = time.monotonic()
@@ -56,54 +58,74 @@ def review_changes(root: str | Path, base: str = 'HEAD', files: list[str] | None
         statuses = [row for row in statuses if row['path'] in allowed or row.get('oldPath') in allowed]
     hunks = _hunks(before, current, statuses)
     changed_current, changed_before = [], []
+    renamed_current, renamed_before = [], []
+    unassessed = []
     for row in statuses:
         path = row['path']
         new_lines = hunks.get(path, {}).get('new', [])
         old_path = row.get('oldPath', path)
         old_lines = hunks.get(path, {}).get('old', [])
+        if path == 'pyproject.toml':
+            unassessed.extend(_unassessed_changes(current, path, new_lines, row['status'], 'working'))
+            unassessed.extend(_unassessed_changes(before, old_path, old_lines, row['status'], 'base'))
+            continue
+        if row['status'] == 'R' and not new_lines and not old_lines:
+            renamed_current.extend(_affected(current, path, [], 'R', reason='definition moved without a source edit'))
+            renamed_before.extend(_affected(before, old_path, [], 'R', reason='definition moved without a source edit'))
+            continue
         changed_current.extend(_affected(current, path, new_lines, row['status']))
         changed_before.extend(_affected(before, old_path, old_lines, row['status']))
-    current_ids = {item['id'] for item in changed_current}
+        unassessed.extend(_unassessed_changes(current, path, new_lines, row['status'], 'working'))
+        unassessed.extend(_unassessed_changes(before, old_path, old_lines, row['status'], 'base'))
+    current_ids = {item['id'] for item in changed_current + renamed_current}
     callers = []
-    for item in changed_current:
-        for caller_id in current['scopes'][item['id']]['callers']:
-            scope = current['scopes'][caller_id]
-            callers.append(_scope_ref(scope, 'known source-linked caller'))
+    for scope in current['scopes'].values():
+        if any(call['status'] == 'supported' and current_ids.intersection(call['targets'])
+               for call in _reachable_calls(scope)):
+            callers.append(_scope_ref(scope, 'known source-linked caller; execution is not established'))
     # Baseline relationships stay separate: deleted targets cannot resolve in
     # the working snapshot, and line-based scope IDs can change after edits.
-    previous_ids = {item['id'] for item in changed_before}
+    previous_ids = {item['id'] for item in changed_before + renamed_before}
     baseline_callers = []
-    caller_ids = {caller_id for target_id in previous_ids
-                  for caller_id in before['scopes'][target_id]['callers']}
-    for caller_id in sorted(caller_ids):
-        scope = before['scopes'][caller_id]
+    for scope in before['scopes'].values():
         calls = []
-        for node in _nodes(scope['flow']):
-            for call in node['calls']:
-                if call['status'] != 'supported':
-                    continue
-                for target_id in call['targets']:
-                    if target_id in previous_ids:
-                        calls.append(add_evidence_ids({
-                            'span': call['span'],
-                            'target': _scope_ref(before['scopes'][target_id], 'previous definition'),
-                        }))
+        for call in _reachable_calls(scope):
+            if call['status'] != 'supported':
+                continue
+            for target_id in call['targets']:
+                if target_id in previous_ids:
+                    calls.append(add_evidence_ids({
+                        'span': call['span'],
+                        'target': _scope_ref(before['scopes'][target_id], 'previous definition'),
+                    }))
         if calls:
             row = _scope_ref(scope, 'historical source-linked caller; current resolution is not established')
             row.update(snapshotId=before['snapshotId'], calls=calls)
             baseline_callers.append(row)
     possible = []
-    changed_names = {current['scopes'][item['id']]['name'] for item in changed_current}
     for scope in current['scopes'].values():
         if scope['id'] in current_ids: continue
-        for node in _nodes(scope['flow']):
-            if any(call['status'] == 'possible' and any(current['scopes'].get(t, {}).get('name') in changed_names for t in call['targets']) for call in node['calls']):
-                possible.append(_scope_ref(scope, 'possible caller under static dispatch assumptions')); break
+        if any(call['status'] == 'possible' and current_ids.intersection(call['targets'])
+               for call in _reachable_calls(scope)):
+            possible.append(_scope_ref(scope, 'possible caller under static dispatch assumptions'))
+    changed_current = _unique(changed_current)
+    changed_before = _unique(changed_before)
+    renamed_current = _unique(renamed_current)
+    renamed_before = _unique(renamed_before)
+    _attach_counterparts(changed_current + renamed_current, current, before, statuses)
+    _attach_counterparts(changed_before + renamed_before, before, current, statuses, reverse=True)
+    if store:
+        for side, snapshot_id in (('working', current['snapshotId']), ('base', before['snapshotId'])):
+            if snapshot_id in store._models:
+                store.register_change_evidence(snapshot_id, [row['span'] for row in unassessed
+                                                             if row['side'] == side and 'span' in row])
     return {'base': base, 'workingSnapshotId': current['snapshotId'], 'baseSnapshotId': before['snapshotId'],
-            'files': statuses, 'changedMethods': _unique(changed_current), 'previousMethods': _unique(changed_before),
+            'files': statuses, 'changedMethods': changed_current, 'previousMethods': changed_before,
+            'renamedMethods': renamed_current, 'previousRenamedMethods': renamed_before,
+            'unassessedChanges': unassessed,
             'knownCallers': _unique(callers), 'baselineCallers': baseline_callers, 'possibleImpact': _unique(possible),
             'parseErrors': {'working': current['errors'], 'base': before['errors']},
-            'notice': 'Changed methods are syntactic overlap. Callers are classified separately; reachability is not observed execution.'}
+            'notice': 'Changed methods have syntactic source overlap; renamed methods have unchanged source at a new path. Caller lists show direct source relationships, not complete transitive or data-dependency impact. Runtime reachability is not established.'}
 
 
 GIT_TIMEOUT_SECONDS = 30
@@ -119,8 +141,10 @@ def _git_bytes(root, args, *, allowed_codes=(0,)):
         except (subprocess.TimeoutExpired, OSError) as exc:
             raise ThreadlineError('Git query failed or exceeded its 30 second budget') from exc
         errors.seek(0)
-        if result.returncode not in allowed_codes: raise ThreadlineError(errors.read(4096).decode(errors='replace').strip())
-        if output.tell() > MAX_GIT_BYTES: raise ThreadlineError('Git output exceeds byte budget; narrow the comparison')
+        if result.returncode not in allowed_codes:
+            raise ThreadlineError(errors.read(4096).decode(errors='replace').strip())
+        if output.tell() > MAX_GIT_BYTES:
+            raise ThreadlineError('Git output exceeds byte budget; narrow the comparison')
         output.seek(0)
         return output.read(MAX_GIT_BYTES + 1)
 
@@ -134,29 +158,40 @@ def _git_z(root, args):
     return [item for item in raw.split('\0') if item]
 
 def _statuses(root, base):
-    values = _git_z(root, ['diff', '--no-ext-diff', '--no-textconv', '--name-status', '-z', '--find-renames', base, '--', '*.py'])
-    rows=[]; index=0
+    values = _git_z(root, ['diff', '--no-ext-diff', '--no-textconv', '--name-status', '-z', '--find-renames', base, '--', '*.py', 'pyproject.toml'])
+    rows = []
+    index = 0
     while index < len(values):
-        status=values[index];index+=1
-        if status.startswith(('R','C')):
-            old,new=values[index:index+2];index+=2;rows.append({'status':status[0], 'oldPath':old, 'path':new})
+        status = values[index]
+        index += 1
+        if status.startswith(('R', 'C')):
+            old, new = values[index:index + 2]
+            index += 2
+            rows.append({'status': status[0], 'oldPath': old, 'path': new})
         else:
-            path=values[index];index+=1;rows.append({'status':status[0], 'path':path})
-    tracked={row['path'] for row in rows}
-    for path in _git_z(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', '*.py']):
-        if path not in tracked: rows.append({'status':'A', 'path':path, 'untracked':True})
+            path = values[index]
+            index += 1
+            rows.append({'status': status[0], 'path': path})
+    tracked = {row['path'] for row in rows}
+    for path in _git_z(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', '*.py', 'pyproject.toml']):
+        if path not in tracked:
+            rows.append({'status': 'A', 'path': path, 'untracked': True})
     return rows
 
 def _snapshot_statuses(before, current, hints):
-    """Git supplies rename hints; analyzed bytes decide which paths actually changed."""
+    """Git supplies rename hints; snapshot source state decides actual changes."""
     old_files, new_files = before['files'], current['files']
-    old_names = set(old_files) | {row['file'] for row in before['errors']}
-    new_names = set(new_files) | {row['file'] for row in current['errors']}
+    old_manifest = before.get('discoveryManifest') or {name: {'hash': info['hash'], 'status': 'parsed'} for name, info in old_files.items()}
+    new_manifest = current.get('discoveryManifest') or {name: {'hash': info['hash'], 'status': 'parsed'} for name, info in new_files.items()}
+    old_names = set(old_manifest) | {row['file'] for row in before['errors']}
+    new_names = set(new_manifest) | {row['file'] for row in current['errors']}
     rows, claimed_old, claimed_new = [], set(), set()
     for hint in hints:
         old, new = hint.get('oldPath'), hint['path']
         if hint['status'] == 'R' and old in old_names - new_names and new in new_names - old_names:
-            rows.append(hint); claimed_old.add(old); claimed_new.add(new)
+            rows.append(hint)
+            claimed_old.add(old)
+            claimed_new.add(new)
     untracked = {row['path'] for row in hints if row.get('untracked')}
     for name in sorted(old_names | new_names):
         if name in claimed_old or name in claimed_new: continue
@@ -164,8 +199,17 @@ def _snapshot_statuses(before, current, hints):
             rows.append({'status': 'A', 'path': name, **({'untracked': True} if name in untracked else {})})
         elif name not in new_names:
             rows.append({'status': 'D', 'path': name})
-        elif old_files.get(name, {}).get('hash') != new_files.get(name, {}).get('hash'):
+        elif old_manifest.get(name) != new_manifest.get(name):
             rows.append({'status': 'M', 'path': name})
+    old_configuration = before.get('configurationManifest', {'present': bool(before.get('configuration')), 'hash': before.get('configuration')})
+    new_configuration = current.get('configurationManifest', {'present': bool(current.get('configuration')), 'hash': current.get('configuration')})
+    if old_configuration != new_configuration:
+        status = ('A' if not old_configuration.get('present') else
+                  'D' if not new_configuration.get('present') else 'M')
+        row = {'status': status, 'path': 'pyproject.toml'}
+        if 'pyproject.toml' in untracked:
+            row['untracked'] = True
+        rows.append(row)
     return rows
 
 
@@ -180,8 +224,12 @@ def _hunks(before, current, statuses):
         for row in statuses:
             if row['status'] in ('A', 'D'): continue
             if time.monotonic() - started > 60: raise ThreadlineError('Diff exceeded 60 second budget')
-            old = before['files'].get(row.get('oldPath', row['path']))
-            new = current['files'].get(row['path'])
+            if row['path'] == 'pyproject.toml':
+                old = _configuration_info(before)
+                new = _configuration_info(current)
+            else:
+                old = before['files'].get(row.get('oldPath', row['path']))
+                new = current['files'].get(row['path'])
             if old is None or new is None: continue  # Parse failures remain explicit in diagnostics.
             old_path.write_bytes(old['source'].encode('utf-8'))
             new_path.write_bytes(new['source'].encode('utf-8'))
@@ -197,19 +245,131 @@ def _hunks(before, current, statuses):
     return result
 
 
-def _affected(model, file, ranges, status):
+def _affected(model, file, ranges, status, *, reason='changed source overlaps definition'):
     rows=[]
     for scope in model['scopes'].values():
         if scope['file'] != file or scope['kind'] in ('module','class'): continue
-        if status == 'A' or not ranges or any(scope['span']['start'] <= end and start <= scope['span']['end'] for start,end in ranges):
-            rows.append(_scope_ref(scope, 'changed source overlaps definition'))
+        if status in ('A', 'D') or (status == 'R' and not ranges) or any(
+            scope['span']['start'] <= end and start <= scope['span']['end'] for start, end in ranges
+        ):
+            rows.append(_scope_ref(scope, reason))
     return rows
+
+
+def _unassessed_changes(model, file, ranges, status, side):
+    """Expose source edits that callable-overlap analysis cannot account for."""
+    info = _configuration_info(model) if file == 'pyproject.toml' else model['files'].get(file)
+    if info is None:
+        if file == 'pyproject.toml':
+            manifest = model.get('configurationManifest', {})
+            if not manifest.get('present'):
+                return []
+            return [{'file': file, 'side': side, 'status': status,
+                     'reason': 'Project configuration could not be read; impact is unassessed',
+                     'analysisError': manifest.get('error', 'configuration source unavailable')}]
+        error = next((item for item in model['errors'] if item['file'] == file), None)
+        if error is None:
+            return []
+        return [{'file': file, 'side': side, 'status': status, 'reason':
+                 'Source could not be parsed or read; impact is unassessed',
+                 'analysisError': error['message']}]
+    line_count = info['lines']
+    if line_count == 0:
+        return ([{'file': file, 'side': side, 'status': status,
+                  'reason': 'Project configuration file changed; callable impact is unassessed'}]
+                if file == 'pyproject.toml' else [])
+    selected = [(1, line_count)] if status in ('A', 'D') else ranges
+    if not selected:
+        return ([{'file': file, 'side': side, 'status': status,
+                  'reason': 'Project configuration bytes changed; callable impact is unassessed'}]
+                if file == 'pyproject.toml' else [])
+    callable_spans = sorted((scope['span']['start'], scope['span']['end'])
+                            for scope in model['scopes'].values()
+                            if scope['file'] == file and scope['kind'] not in ('module', 'class'))
+    rows = []
+    for start, end in selected:
+        fragments = [(max(1, start), min(line_count, end))]
+        for covered_start, covered_end in callable_spans:
+            next_fragments = []
+            for first, last in fragments:
+                if last < covered_start or first > covered_end:
+                    next_fragments.append((first, last))
+                else:
+                    if first < covered_start:
+                        next_fragments.append((first, covered_start - 1))
+                    if last > covered_end:
+                        next_fragments.append((covered_end + 1, last))
+            fragments = next_fragments
+        for first, last in fragments:
+            if first > last:
+                continue
+            span = {'file': file, 'start': first, 'end': last, 'hash': info['hash']}
+            rows.append(add_evidence_ids({'file': file, 'side': side, 'status': status,
+                                          'span': span, 'reason':
+                                          'Changed source outside callable definitions; impact is unassessed'}))
+    return rows
+
+
+def _configuration_info(model):
+    manifest = model.get('configurationManifest')
+    if manifest is None:
+        source = model.get('configuration', '')
+        if not source:
+            return None
+        return {'source': source, 'hash': hashlib.sha256(source.encode('utf-8')).hexdigest(),
+                'lines': len(source.splitlines())}
+    if not manifest.get('present') or manifest.get('hash') is None or manifest.get('error'):
+        return None
+    source = model.get('configuration', '')
+    return {'source': source, 'hash': manifest['hash'], 'lines': len(source.splitlines())}
+
+
+def _attach_counterparts(rows, own_model, other_model, statuses, *, reverse=False):
+    """Match unique symbols independently of their position-based occurrence IDs."""
+    def index(model):
+        result = {}
+        for scope in model['scopes'].values():
+            key = (scope['file'], scope['qualified'], scope['kind'])
+            result.setdefault(key, []).append(scope)
+        return result
+
+    own_index = index(own_model)
+    other_index = index(other_model)
+    old_to_new = {row['oldPath']: row['path'] for row in statuses if row.get('oldPath')}
+    new_to_old = {new: old for old, new in old_to_new.items()}
+    file_map = old_to_new if reverse else new_to_old
+    for row in rows:
+        symbol = own_model['scopes'][row['id']]
+        other_file = file_map.get(symbol['file'], symbol['file'])
+        own_matches = own_index.get((symbol['file'], symbol['qualified'], symbol['kind']), [])
+        candidates = other_index.get((other_file, symbol['qualified'], symbol['kind']), [])
+        if len(own_matches) > 1 or len(candidates) > 1:
+            row['match'] = 'ambiguous'
+        elif len(candidates) == 1:
+            row['match'] = 'paired'
+            row['counterpartId'] = candidates[0]['id']
+            row['counterpartSnapshotId'] = other_model['snapshotId']
+        elif any(error['file'] == other_file for error in other_model['errors']):
+            row['match'] = 'ambiguous'
+        else:
+            row['match'] = 'added' if not reverse else 'deleted'
 
 def _scope_ref(scope, reason):
     return add_evidence_ids({'id':scope['id'],'name':scope['qualified'],'file':scope['file'],'span':scope['span'],'reason':reason})
 def _unique(rows):
-    return list({(row['file'],row['name']):row for row in rows}.values())
+    return list({row['id']: row for row in rows}.values())
 def _nodes(flow):
     for node in flow:
         yield node
         for branch in node['branches']: yield from _nodes(branch['nodes'])
+
+
+def _reachable_calls(scope):
+    def visit(nodes, unreachable=False):
+        for node in nodes:
+            blocked = unreachable or node.get('unreachable', False)
+            if not blocked:
+                yield from node['calls']
+            for branch in node['branches']:
+                yield from visit(branch['nodes'], blocked)
+    yield from visit(scope['flow'])

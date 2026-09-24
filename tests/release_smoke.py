@@ -48,7 +48,9 @@ def main():
         result = subprocess.run([str(cli), 'inspect', str(target), '--entrypoint', 'api:handle'],
                                 cwd=root, env=env, check=True, text=True, capture_output=True, timeout=30)
         workflow = json.loads(result.stdout)
-        assert len(workflow['stages']['items']) >= 3, workflow
+        assert workflow['schemaVersion'] == '1.1', workflow
+        assert workflow['analysis']['complete'] is True, workflow
+        assert len(workflow['result']['stages']['items']) >= 3, workflow
         with (root / 'server.log').open('w+') as log:
             process = subprocess.Popen([str(cli), 'review', str(target), '--port', '0', '--no-open'],
                                        cwd=root, env=env, stdout=log, stderr=log, text=True)

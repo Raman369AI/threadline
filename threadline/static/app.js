@@ -234,7 +234,8 @@ async function chooseScope(id, opts={}) {
   }
   appendScopeFlow($('#flow'), scope, [scope.id], 0);
   $('#flow').append(el('div', 'scope-end', ['module','class'].includes(scope.kind) ? 'End of body · definitions remain individually accessible.' : (scope.nextCursor!==null?'More statements are available using Load more statements above.':'End of body · if control reaches here, Python returns None (or the generator terminates).')));
-  renderPayloads(); navigation(); await showSource(scope.span, scope.qualified, 'Original source for this scope. Select an operation to focus its evidence.');
+  renderPayloads(); navigation();
+  await showSource(scope.span, scope.qualified, 'Original source for this scope. Select an operation to focus its evidence.');
   if(request!==selectionRequest || captured!==model)return false;
   $('.review').scrollTop = 0;
   const activeNav = $('#navigation .nav-item.active');
@@ -255,7 +256,7 @@ async function returnToCaller() {
   state.focus = frame.focus; state.selectedElement = frame.selectedElement;
   $('#flow').replaceChildren(...frame.dom); renderPayloads();
   $('.review').scrollTop = frame.scroll;
-  if (frame.focus) await showSource(frame.focus.span, frame.focus.title, frame.focus.details);
+  if (frame.focus) await showSource(frame.focus.span, frame.focus.title, frame.focus.details, false, null, frame.focus.snapshotId);
   frame.selectedElement?.querySelector('button')?.focus({preventScroll:true});
 }
 
@@ -464,12 +465,12 @@ function syntax(line) {
   while((match=regex.exec(line))) { out+=escaped(line.slice(end,match.index)); const token=match[0],type=token.startsWith('#')?'comment':/^["']/.test(token)?'str':/^\d/.test(token)?'num':'key'; out+=`<span class="tok-${type}">${escaped(token)}</span>`; end=match.index+token.length; }
   return out+escaped(line.slice(end));
 }
-async function showSource(span,title,details='',preserveScroll=false,pageStart=null) {
+async function showSource(span,title,details='',preserveScroll=false,pageStart=null,snapshotId=null) {
   const request=++sourceRequest, captured=model;
-  state.focus={span,title,details};
+  state.focus={span,title,details,snapshotId};
   const start=pageStart || (state.sourceWhole?1:Math.max(1,span.start-4));
   try {
-    const result=await api('/api/source',{snapshot:captured.snapshotId,file:span.file,start});
+    const result=await api('/api/source',{snapshot:snapshotId||captured.snapshotId,file:span.file,start});
     if(request!==sourceRequest || captured!==model) return;
     clearError('source');
     $('#sourceFile').textContent=span.file;
@@ -486,17 +487,25 @@ async function showSource(span,title,details='',preserveScroll=false,pageStart=n
     const host=$('#sourceDetails');host.replaceChildren();
     for(const line of details.split('\n').filter(Boolean))host.append(el('div','',line));
     const controls=el('div','source-peek');
-    if(start>1)controls.append(button('Previous source lines','scope-jump',()=>showSource(span,title,details,false,Math.max(1,start-80))));
-    if(result.span.end<result.totalLines) controls.append(button('Next source lines →','scope-jump',()=>showSource(span,title,details,false,result.span.end+1)));
-    controls.append(button('Start of file','scope-jump',()=>showSource(span,title,details,false,1)));
+    if(start>1)controls.append(button('Previous source lines','scope-jump',()=>showSource(span,title,details,false,Math.max(1,start-80),snapshotId)));
+    if(result.span.end<result.totalLines) controls.append(button('Next source lines →','scope-jump',()=>showSource(span,title,details,false,result.span.end+1,snapshotId)));
+    controls.append(button('Start of file','scope-jump',()=>showSource(span,title,details,false,1,snapshotId)));
     const entireSelection=span.start>=start&&span.end<=result.span.end;
     controls.append(button(entireSelection?'Copy exact selection':'Copy visible source','scope-jump',async()=>{
       try {await navigator.clipboard.writeText(entireSelection?lines.slice(span.start-start,span.end-start+1).join('\n'):result.source);announce('Source copied');}
       catch {announce('Clipboard unavailable; select and copy the source.');}
     }));
-    controls.append(button(state.wrap?'Unwrap lines':'Wrap lines','scope-jump',()=>{state.wrap=!state.wrap;showSource(span,title,details,true,start);}));
-    host.append(controls);$('#snapshotLabel').textContent='Snapshot '+captured.snapshotId.slice(0,8);
-  } catch(error) {if(request===sourceRequest && captured===model){$('#sourceCode').replaceChildren(el('p','error',error.message));reportError(error,()=>showSource(span,title,details,preserveScroll,pageStart),'source');}}
+    controls.append(button(state.wrap?'Unwrap lines':'Wrap lines','scope-jump',()=>{state.wrap=!state.wrap;showSource(span,title,details,true,start,snapshotId);}));
+    host.append(controls);$('#snapshotLabel').textContent='Snapshot '+(snapshotId||captured.snapshotId).slice(0,8);
+  } catch(error) {if(request===sourceRequest && captured===model){$('#sourceCode').replaceChildren(el('p','error',error.message));reportError(error,()=>showSource(span,title,details,preserveScroll,pageStart,snapshotId),'source');}}
+}
+function analysisStatus() {
+  const errors=model.diagnostics?.analysisErrors?.total??model.diagnostics?.parseErrors?.total??0;
+  const skipped=Math.max(0,(model.coverage?.discovered||0)-(model.coverage?.files||0));
+  const badge=$('#analysisStatus');
+  badge.hidden=!errors&&!skipped;
+  badge.textContent=errors?`${errors} analysis ${errors===1?'issue':'issues'} · review incomplete`:`${skipped} skipped ${skipped===1?'file':'files'} · review incomplete`;
+  badge.setAttribute('aria-label',badge.textContent+'. Open source coverage.');
 }
 function coverage() {
   const c=model.coverage, host=$('#coveragePanel');host.replaceChildren(el('h2','','Source coverage'),el('p','',model.root));
@@ -504,8 +513,8 @@ function coverage() {
   for(const [value,label] of [[`${format(c.files)}/${format(c.discovered)}`,'Python files parsed'],[format(c.definitions),'functions, methods & lambdas'],[`${format(c.representedStatements)}/${format(c.statements)}`,'statements represented'],[`${format(c.representedCalls)}/${format(c.calls)}`,'explicit call sites represented']]) {const stat=el('div','coverage-stat');stat.append(el('strong','',value),el('span','',label));grid.append(stat);}host.append(grid);
   host.append(el('p','',Object.entries(c.statuses).map(([k,v])=>`${format(v)} ${k}`).join(' · ')));
   for(const limit of model.limits)host.append(el('p','',limit));
-  for(const [label,category] of [['Excluded paths','excluded'],['Parse errors','errors'],['Unmodeled call syntax','unmodeledCalls']]) {
-    const section=el('details');section.append(el('summary','',label));
+  for(const [label,category,count] of [['Excluded paths','excluded',model.diagnostics?.excluded?.total||0],['Analysis issues','errors',model.diagnostics?.analysisErrors?.total??model.diagnostics?.parseErrors?.total??0],['Unmodeled call syntax','unmodeledCalls',c.unmodeledCalls||0]]) {
+    const section=el('details');section.append(el('summary','',label+' · '+count));
     const content=el('div');section.append(content);host.append(section);
     section.addEventListener('toggle',()=>{if(section.open&&!content.childNodes.length)loadDiagnostics(content,category);});
   }
@@ -565,8 +574,8 @@ function renderChanges() {
   $('#changesTab').hidden=!changes?.baseSnapshotId;
   host.replaceChildren();
   if(!changes?.baseSnapshotId) return;
-  host.append(el('h2','workflow-title','Changes from '+changes.base),el('p','workflow-intro','Review current methods, previous source, and the callers that may need attention.'));
-  const categories=[['Changed methods','changedMethods'],['Previous methods','previousMethods'],['Current callers','knownCallers'],['Baseline callers','baselineCallers'],['Possible impact','possibleImpact']];
+  host.append(el('h2','workflow-title','Changes from '+changes.base),el('p','workflow-intro','Changed files and edits outside methods are listed here. Caller lists cover direct source relationships; other effects may remain unassessed.'));
+  const categories=[['Changed files','files'],['Changes outside methods','unassessedChanges'],['Changed methods','changedMethods'],['Moved methods · source unchanged','renamedMethods'],['Previous methods','previousMethods'],['Previous moved methods','previousRenamedMethods'],['Current callers','knownCallers'],['Baseline callers','baselineCallers'],['Possible impact','possibleImpact']];
   for(const [label,category] of categories) {
     const section=el('details','change-section'), count=changes.counts[category] || 0;
     section.dataset.category=category;
@@ -574,9 +583,10 @@ function renderChanges() {
     const content=el('div','change-records');section.append(content);host.append(section);
     if(category==='possibleImpact') content.append(el('p','workflow-intro','Possible callers under static dispatch assumptions; runtime targets remain uncertain.'));
     if(category==='baselineCallers') content.append(el('p','workflow-intro','Historical calls to previous definitions, including deleted targets. These links do not establish current resolution.'));
+    if(category==='unassessedChanges') content.append(el('p','workflow-intro','These edits are visible, but their effect on methods and callers has not been established.'));
     const rows=el('div');content.append(rows);
     section.addEventListener('toggle',()=>{if(section.open&&!rows.childNodes.length)loadDiagnostics(rows,category);});
-    section.open=category===(changes.counts.changedMethods?'changedMethods':'previousMethods');
+    section.open=category==='files' || category==='unassessedChanges' && count>0 || category===(changes.counts.changedMethods?'changedMethods':'previousMethods');
   }
 }
 async function loadDiagnostics(host,category,cursor=0) {
@@ -586,17 +596,31 @@ async function loadDiagnostics(host,category,cursor=0) {
     if(captured!==model || !host.isConnected)return;
     host.replaceChildren(el('p','',result.rows.total ? result.rows.total+' records' : 'No records in this category.'));
     for(const row of result.rows.items) {
-      const label=row.id ? row.name+' · '+row.file+':'+row.span.start : [row.file||row.path||row.span?.file,row.reason||row.message||row.expression].filter(Boolean).join(' · ');
       const record=el('div','change-record');
-      if(row.id && ['previousMethods','baselineCallers'].includes(category) && model.changes?.baseSnapshotId) {
+      if(category==='files') {
+        const status=({A:'Added',D:'Deleted',M:'Modified',R:'Renamed',C:'Copied'})[row.status]||row.status;
+        const label=status+' · '+(row.oldPath?row.oldPath+' → ':'')+row.path;
+        record.append(el('p','',label));
+        const baseline=row.status==='D';
+        const file=baseline?(row.oldPath||row.path):row.path;
+        record.append(button(baseline?'Open baseline source':'Open working source','scope-jump',()=>showSource({file,start:1,end:1},label,'Changed file; callable impact is listed separately.',false,null,baseline?model.changes.baseSnapshotId:null)));
+      } else if(category==='unassessedChanges') {
+        const side=row.side==='base'?'Baseline':'Working source';
+        const label=side+' · '+row.file+(row.span?':'+row.span.start:'')+' · '+row.reason;
+        record.append(el('p','',label));
+        if(row.span) record.append(button('Open exact source','scope-jump',()=>showSource(row.span,label,row.reason,false,null,row.side==='base'?model.changes.baseSnapshotId:null)));
+        if(row.analysisError)record.append(el('p','status unknown','Source unavailable: '+row.analysisError));
+      } else if(row.id && ['previousMethods','previousRenamedMethods','baselineCallers'].includes(category) && model.changes?.baseSnapshotId) {
+        const label=row.name+' · '+row.file+':'+row.span.start;
         record.append(baselineLink(row,label+' · Open baseline'));
-        if(category==='previousMethods')record.append(button('Compare before / after','scope-jump',()=>showComparison(row.id,'base')));
+        if(['previousMethods','previousRenamedMethods'].includes(category))record.append(button('Compare before / after','scope-jump',()=>showComparison(row.id,'base')));
         if(row.calls) record.append(el('p','source-peek','Previously called: '+[...new Set(row.calls.map(call=>call.target.name))].join(', ')));
       } else if(row.id) {
+        const label=row.name+' · '+row.file+':'+row.span.start;
         record.append(button(label,'scope-jump change-name',()=>startReview(row.id,true)));
-        if(category==='changedMethods')record.append(button('Compare before / after','scope-jump',()=>showComparison(row.id,'working')));
+        if(['changedMethods','renamedMethods'].includes(category))record.append(button('Compare before / after','scope-jump',()=>showComparison(row.id,'working')));
         record.append(button('Trace workflow','scope-jump',async()=>{if(await chooseScope(row.id))await showSelectedWorkflow();}));
-      } else record.append(el('p','',label));
+      } else record.append(el('p','',[row.file||row.path||row.span?.file,row.reason||row.message||row.expression].filter(Boolean).join(' · ')));
       host.append(record);
     }
     if(cursor)host.append(button('Previous records','quiet-button',()=>loadDiagnostics(host,category,Math.max(0,cursor-25))));
@@ -615,7 +639,7 @@ async function load(refresh=false) {
     for(const scope of summary.entrypoints.items)model.scopes[scope.id]=scope;
     if(refresh && requestedSnapshot) history.replaceState(null,'',location.pathname+location.hash);
     $('#projectName').textContent=model.project;
-    coverage();renderChanges();
+    analysisStatus();coverage();renderChanges();
     const returnSnapshot=new URLSearchParams(location.search).get('returnSnapshot'), notice=$('#baselineNotice');
     notice.hidden=!returnSnapshot || refresh;
     notice.replaceChildren();
@@ -634,7 +658,9 @@ async function load(refresh=false) {
   finally{b.disabled=false;b.textContent='↻ Refresh source';}
 }
 let searchTimer; $('#search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>navigation(),150);});
-$('#coverageButton').addEventListener('click',()=>{const h=$('#coveragePanel');h.hidden=!h.hidden;$('#coverageButton').setAttribute('aria-expanded',String(!h.hidden));if(!h.hidden)h.focus();});
+function toggleCoverage() {const h=$('#coveragePanel');h.hidden=!h.hidden;$('#coverageButton').setAttribute('aria-expanded',String(!h.hidden));if(!h.hidden)h.focus();}
+$('#coverageButton').addEventListener('click',toggleCoverage);
+$('#analysisStatus').addEventListener('click',toggleCoverage);
 $('#refreshButton').addEventListener('click',()=>load(true));
 $('#expandBranches').addEventListener('click',()=>{$('#flow').querySelectorAll('details.branch').forEach(d=>d.open=true);});
 $('#collapseCalls').addEventListener('click',()=>{$('#flow').querySelectorAll('.call').forEach(call=>{const content=call.children[1];content.hidden=true;const b=call.querySelector(':scope > .call-row > .call-open');b.textContent=b.dataset.closedLabel;b.setAttribute('aria-expanded','false');});});

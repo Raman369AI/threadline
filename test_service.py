@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from threadline.service import SnapshotStore, ThreadlineError
 
@@ -86,7 +87,7 @@ def service(value):
 
     def test_snapshot_queries_are_bounded_and_consistent(self):
         summary=self.store.summary(limit=1)
-        self.assertEqual(summary['schemaVersion'],'1.0')
+        self.assertEqual(summary['schemaVersion'],'1.1')
         self.assertEqual(summary['entrypoints']['items'][0]['name'],'create')
         self.assertEqual(summary['entrypoints']['items'][0]['confidence'],'supported')
         found=self.store.find_symbols('service',snapshot_id=summary['snapshotId'],limit=1)
@@ -145,6 +146,71 @@ def service(value):
         self.assertNotEqual(first,second)
         self.assertEqual(self.store.summary(snapshot_id=first)['entrypoints']['items'][0]['name'],'create')
         self.assertEqual(self.store.summary(snapshot_id=second)['entrypoints']['items'][0]['name'],'helper')
+
+    def test_empty_configuration_presence_changes_snapshot_identity(self):
+        configuration = self.root / 'pyproject.toml'
+        configuration.unlink()
+        absent = self.store.summary()['snapshotId']
+        configuration.write_text('')
+        present_empty = self.store.summary(refresh=True)['snapshotId']
+        self.assertNotEqual(absent, present_empty)
+        configuration.unlink()
+        self.assertEqual(self.store.summary(refresh=True)['snapshotId'], absent)
+
+    def test_configuration_read_failure_is_visible_and_keeps_prior_snapshot(self):
+        from threadline import analyzer
+
+        healthy = self.store.summary()
+        read_source = analyzer.read_source_bytes
+
+        def fail_configuration(path, root):
+            if path.name == 'pyproject.toml':
+                raise PermissionError('fixture read failure')
+            return read_source(path, root)
+
+        with patch('threadline.analyzer.read_source_bytes', side_effect=fail_configuration):
+            failed = self.store.summary(refresh=True)
+            failed_model = self.store.model(failed['snapshotId'])
+        self.assertNotEqual(healthy['snapshotId'], failed['snapshotId'])
+        self.assertEqual(failed['coverage']['discovered'], healthy['coverage']['discovered'])
+        self.assertEqual(failed_model['configurationManifest']['error'],
+                         'PermissionError: fixture read failure')
+        self.assertEqual(failed['diagnostics']['parseErrors']['total'], 0)
+        self.assertEqual(failed['diagnostics']['configurationErrors']['total'], 1)
+        self.assertEqual(failed['diagnostics']['analysisErrors']['total'], 1)
+        error = failed['diagnostics']['configurationErrors']['items'][0]
+        self.assertEqual(error['file'], 'pyproject.toml')
+        self.assertEqual(error['kind'], 'configuration')
+        self.assertIn('fixture read failure', error['message'])
+        self.assertEqual(self.store.diagnostics(category='errors')['rows']['items'], [error])
+        self.assertEqual(self.store.summary(snapshot_id=healthy['snapshotId'])['diagnostics']['parseErrors']['total'], 0)
+        self.assertEqual(self.store.summary(refresh=True)['snapshotId'], healthy['snapshotId'])
+
+    def test_configuration_decode_failure_is_visible(self):
+        from threadline import analyzer
+
+        (self.root / 'bad.py').write_text('def broken(:\n')
+        read_source = analyzer.read_source_bytes
+
+        def invalid_configuration(path, root):
+            if path.name == 'pyproject.toml':
+                return b'\xff'
+            return read_source(path, root)
+
+        with patch('threadline.analyzer.read_source_bytes', side_effect=invalid_configuration):
+            summary = self.store.summary()
+            manifest = self.store.model(summary['snapshotId'])['configurationManifest']
+        self.assertTrue(manifest['present'])
+        self.assertIsNotNone(manifest['hash'])
+        self.assertIn('UnicodeDecodeError', manifest['error'])
+        self.assertEqual(summary['diagnostics']['parseErrors']['total'], 1)
+        self.assertEqual(summary['diagnostics']['configurationErrors']['total'], 1)
+        self.assertEqual(summary['diagnostics']['analysisErrors']['total'], 2)
+        self.assertEqual(summary['diagnostics']['parseErrors']['items'][0]['file'], 'bad.py')
+        error = summary['diagnostics']['configurationErrors']['items'][0]
+        self.assertEqual((error['file'], error['kind']), ('pyproject.toml', 'configuration'))
+        self.assertEqual({row['file'] for row in self.store.diagnostics(category='errors')['rows']['items']},
+                         {'bad.py', 'pyproject.toml'})
 
     def test_browser_pages_preserve_branch_bodies_and_allow_all_definitions(self):
         (self.root/'many.py').write_text('def many(value):\n'+''.join(f'    value += {i}\n' for i in range(45))+'    if value:\n        return value\n    return 0\n')
@@ -260,3 +326,74 @@ def service(value):
     def test_malformed_project_metadata_is_not_executed_or_trusted(self):
         (self.root/'pyproject.toml').write_text('project = 3\ntool = ["unexpected"]\n')
         self.assertTrue(self.store.summary()['entrypoints']['items'])
+
+    def test_parse_failure_edits_change_snapshot_and_retained_diagnostics(self):
+        store = SnapshotStore(self.root, retention=6)
+        clean = store.summary()['snapshotId']
+        path = self.root / 'bad.py'
+        path.write_text('def broken(:\n')
+        added = store.summary(refresh=True)['snapshotId']
+        self.assertNotEqual(clean, added)
+        self.assertEqual([row['file'] for row in store.summary()['diagnostics']['parseErrors']['items']], ['bad.py'])
+        path.write_text('def broken( :\n')
+        edited = store.summary(refresh=True)['snapshotId']
+        self.assertNotEqual(added, edited)
+        self.assertEqual(store.summary(snapshot_id=clean)['diagnostics']['parseErrors']['total'], 0)
+        path.write_text('def broken():\n    return 1\n')
+        fixed = store.summary(refresh=True)['snapshotId']
+        self.assertNotEqual(edited, fixed)
+        self.assertEqual(store.summary()['diagnostics']['parseErrors']['total'], 0)
+        path.write_text('def broken(:\n')
+        broken_again = store.summary(refresh=True)['snapshotId']
+        self.assertEqual(broken_again, added)
+        path.unlink()
+        removed = store.summary(refresh=True)['snapshotId']
+        self.assertEqual(removed, clean)
+        self.assertEqual(store.summary()['diagnostics']['parseErrors']['total'], 0)
+
+    def test_query_results_are_detached_from_retained_model(self):
+        (self.root / 'bad.py').write_text('def bad(:\n')
+        self.store.refresh()
+        symbol = self.store.find_symbols('create')['symbols']['items'][0]
+        scope = self.store.get_scope(symbol['id'])
+        scope['scope']['name'] = 'modified by caller'
+        scope['flow']['items'][0]['label'] = 'modified by caller'
+        method = self.store.get_method(symbol['id'])
+        method['operations']['items'][0]['label'] = 'modified by caller'
+        diagnostics = self.store.diagnostics(category='errors')
+        diagnostics['rows']['items'][0]['message'] = 'modified by caller'
+        summary = self.store.summary()
+        summary['limits'].clear()
+        summary['diagnostics']['parseErrors']['items'][0]['message'] = 'modified by caller'
+        self.assertNotEqual(self.store.get_scope(symbol['id'])['scope']['name'], 'modified by caller')
+        self.assertNotEqual(self.store.get_scope(symbol['id'])['flow']['items'][0]['label'], 'modified by caller')
+        self.assertNotEqual(self.store.get_method(symbol['id'])['operations']['items'][0]['label'], 'modified by caller')
+        self.assertNotEqual(self.store.diagnostics(category='errors')['rows']['items'][0]['message'], 'modified by caller')
+        self.assertTrue(self.store.summary()['limits'])
+
+    def test_method_and_workflow_keep_the_same_call_semantics(self):
+        (self.root / 'contract.py').write_text('''class Repo:
+    def get(self, key):
+        return key
+def entry(flag):
+    repo = Repo()
+    if flag:
+        return repo.get(1)
+    return 0
+    repo.get(2)
+''')
+        model = self.store.refresh()
+        entry = next(scope for scope in model['scopes'].values()
+                     if scope['file'] == 'contract.py' and scope['name'] == 'entry')
+        method = self.store.get_method(entry['id'], limit=50)
+        workflow = self.store.get_workflow(entry['id'], limit=50)
+        calls = [call for operation in method['operations']['items']
+                 for call in operation['calls']]
+        stages = {stage['id']: stage for stage in workflow['stages']['items']}
+        self.assertEqual(len(calls), 3)
+        for call in calls:
+            stage = stages['call:' + call['id']]
+            for field in ('status', 'reasonCode', 'guards', 'receiverBindings', 'unreachable'):
+                self.assertEqual(stage[field], call[field])
+            self.assertEqual(stage['executionContext']['kind'], call['executionContext']['kind'])
+            self.assertEqual(stage['evidenceId'], call['evidenceId'])

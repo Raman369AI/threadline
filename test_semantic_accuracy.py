@@ -31,12 +31,14 @@ def evaluate():
                 call = calls[0]
                 targets = {model['scopes'][target]['file']+':'+model['scopes'][target]['qualified'] for target in call['targets']}
                 allowed = set(expected['allowedTargets'])
+                required = set(expected.get('requiredTargets', []))
                 false_supported = call['status'] == 'supported' and ('supported' not in expected['allowedStatuses'] or not targets or not targets <= allowed)
                 evidence = store.get_source(evidence=call['evidenceId'])
-                valid = (call['status'] in expected['allowedStatuses'] and targets <= allowed
+                valid = (call['status'] in expected['allowedStatuses'] and required <= targets <= allowed
                          and evidence['requestedSpan'] == call['span'] and expected['call'] in evidence['source'])
                 rows.append({'case':case['name'], 'status':call['status'], 'targets':sorted(targets),
                              'directTarget':expected['directTarget'], 'falseSupported':false_supported,
+                             'missingRequiredTargets':sorted(required - targets),
                              'passed':valid, 'evidenceId':call['evidenceId']})
     direct = [row for row in rows if row.get('directTarget')]
     return {'cases':len(rows), 'passed':all(row['passed'] for row in rows),

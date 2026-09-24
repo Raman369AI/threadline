@@ -172,7 +172,9 @@ class Widget:
         self.assertTrue(any('Short-circuit' in d['label'] for d in node['decisions']))
         names = [c['name'] for c in node['calls']]
         self.assertLess(names.index('inner'), names.index('outer'))
-        self.assertTrue(all(c['conditional'] for c in node['calls']))
+        by_name = {call['name']: call for call in node['calls']}
+        self.assertFalse(by_name['check']['conditional'])
+        self.assertTrue(all(by_name[name]['conditional'] for name in ('inner', 'outer', 'fallback')))
 
     def test_recursion_dynamic_calls_and_occurrences(self):
         _, result = self.inspect({'logic.py': 'def recurse(n, callback):\n    callback(n)\n    callback(n)\n    return recurse(n-1) if n else None\n'})
@@ -264,6 +266,319 @@ def start():
         call=self.scope(explicit,'start')['flow'][0]['calls'][0]
         self.assertEqual(call['status'],'supported')
         with self.assertRaises(ValueError): analyze(root,source_roots=['../outside'])
+
+    def test_common_object_oriented_receivers_and_distinct_chained_calls(self):
+        _, result = self.inspect({
+            'pkg/repo.py': '''class Repo:
+    def get(self, key):
+        return key
+''',
+            'app.py': '''import pkg.repo
+import pkg.repo as r
+from pkg.repo import Repo
+class Base:
+    def helper(self):
+        return 1
+class Service(Base):
+    def __init__(self, repo: Repo):
+        self.repo = repo
+    def entry(self, key):
+        return self.repo.get(key), self.helper(), pkg.repo.Repo().get(key), r.Repo().get(key)
+def dotted():
+    return pkg.repo.Repo().get(1)
+''',
+        })
+        calls = [call for node in Analyzer.walk_flow(self.scope(result, 'Service.entry')['flow'])
+                 for call in node['calls']]
+        by_name = {call['name']: call for call in calls}
+        for name, qualified in (('self.repo.get', 'Repo.get'), ('self.helper', 'Base.helper'),
+                                ('pkg.repo.Repo().get', 'Repo.get'), ('r.Repo().get', 'Repo.get')):
+            call = by_name[name]
+            self.assertEqual(call['status'], 'possible', name)
+            self.assertEqual([result['scopes'][target]['qualified'] for target in call['targets']], [qualified])
+            self.assertEqual(call['bindings'][call['targets'][0]][-1]['parameter'], 'key' if qualified == 'Repo.get' else 'self')
+            self.assertEqual(call['receiverBindings'][call['targets'][0]]['mode'], 'implicit')
+            self.assertEqual(call['receiverBindings'][call['targets'][0]]['certainty'], 'possible')
+        evidence = by_name['self.repo.get']['candidateEvidence']
+        self.assertEqual([row['span']['start'] for row in evidence], [9, 8])
+        self.assertTrue(all(row['span']['hash'] == result['files']['app.py']['hash'] for row in evidence))
+        all_ids = [call['id'] for call in calls]
+        self.assertEqual(len(all_ids), len(set(all_ids)))
+        self.assertEqual(result['coverage']['calls'], result['coverage']['representedCalls'])
+
+    def test_local_binding_constructs_and_class_namespace_do_not_invent_calls(self):
+        _, result = self.inspect({'x.py': '''import pkg as module
+def helper():
+    return 1
+class Example:
+    def method(self):
+        return 2
+    def entry(self):
+        return method()
+def loop(callbacks):
+    for helper in callbacks:
+        helper()
+def context(ctx):
+    with ctx as helper:
+        helper()
+def unpack(values):
+    helper, other = values
+    helper()
+def walrus(callback):
+    if helper := callback:
+        helper()
+def pattern(value):
+    match value:
+        case [helper]:
+            helper()
+def comprehension(callbacks):
+    [helper() for helper in callbacks]
+    return helper()
+def imported_comprehension(modules):
+    [module.clean() for module in modules]
+''', 'pkg.py': 'def clean(): return 1\n'})
+        for qualified in ('loop', 'context', 'unpack', 'walrus', 'pattern'):
+            call = next(call for node in Analyzer.walk_flow(self.scope(result, qualified)['flow'])
+                        for call in node['calls'] if call['name'] == 'helper')
+            self.assertEqual((call['status'], call['targets']), ('unknown', []), qualified)
+        class_call = self.scope(result, 'Example.entry')['flow'][0]['calls'][0]
+        self.assertEqual((class_call['status'], class_call['targets']), ('unknown', []))
+        comp_calls = [call for node in Analyzer.walk_flow(self.scope(result, 'comprehension')['flow'])
+                      for call in node['calls']]
+        self.assertEqual([call['status'] for call in comp_calls], ['unknown', 'supported'])
+        imported_comp = self.scope(result, 'imported_comprehension')['flow'][0]['calls'][0]
+        self.assertEqual((imported_comp['status'], imported_comp['targets']), ('unknown', []))
+        self.assertEqual(self.scope(result, 'helper')['callers'], [self.scope(result, 'comprehension')['id']])
+
+    def test_calls_before_local_binding_are_not_marked_supported(self):
+        _, result = self.inspect({'app.py': '''def later_import():
+    clean()
+    from helpers import clean
+def later_definition():
+    clean()
+    def clean(): return 1
+clean()
+def clean(): return 2
+if flag:
+    def conditional(): return 3
+conditional()
+''', 'helpers.py': 'def clean(): return 4\n'})
+        for qualified in ('later_import', 'later_definition'):
+            call = self.scope(result, qualified)['flow'][0]['calls'][0]
+            self.assertEqual(call['status'], 'possible', qualified)
+            self.assertEqual(call['reasonCode'], 'binding_not_established')
+            self.assertIn('may not be bound before this call', call['reason'])
+        module = next(scope for scope in result['scopes'].values()
+                      if scope['kind'] == 'module' and scope['file'] == 'app.py')
+        calls = [call for node in module['flow'] for call in node['calls']]
+        self.assertEqual([call['status'] for call in calls if call['name'] in ('clean', 'conditional')],
+                         ['possible', 'possible'])
+
+    def test_explicit_unbound_and_module_function_arguments_are_not_shifted(self):
+        _, result = self.inspect({'models.py': '''class Repo:
+    def get(self, key):
+        return key
+def plain(self, key):
+    return key
+''', 'app.py': '''import models
+def run():
+    models.Repo.get(models.Repo(), 4)
+    models.plain('receiver', 4)
+'''})
+        calls = [call for node in Analyzer.walk_flow(self.scope(result, 'run')['flow'])
+                 for call in node['calls']]
+        unbound = next(call for call in calls if call['name'] == 'models.Repo.get')
+        plain = next(call for call in calls if call['name'] == 'models.plain')
+        self.assertEqual(unbound['status'], 'supported')
+        self.assertEqual([(row['argument'], row['parameter']) for row in unbound['bindings'][unbound['targets'][0]]],
+                         [('models.Repo()', 'self'), ('4', 'key')])
+        self.assertEqual(unbound['receiverBindings'][unbound['targets'][0]]['mode'], 'explicit')
+        self.assertEqual([(row['argument'], row['parameter']) for row in plain['bindings'][plain['targets'][0]]],
+                         [("'receiver'", 'self'), ('4', 'key')])
+        self.assertEqual(plain['receiverBindings'][plain['targets'][0]]['mode'], 'not-applicable')
+
+    def test_classmethod_binds_class_for_instance_and_class_access(self):
+        _, result = self.inspect({'x.py': '''class Service:
+    @classmethod
+    def build(cls, value): return value
+    def entry(self):
+        return self.build(4), Service.build(5)
+'''})
+        calls = {call['name']: call for call in self.scope(result, 'Service.entry')['flow'][0]['calls']}
+        instance = calls['self.build']
+        class_call = calls['Service.build']
+        self.assertEqual(instance['bindings'][instance['targets'][0]][0]['argument'], 'type(self) (implicit)')
+        self.assertEqual(class_call['bindings'][class_call['targets'][0]][0]['argument'], 'Service (implicit class)')
+        self.assertEqual(instance['receiverBindings'][instance['targets'][0]]['mode'], 'implicit')
+
+    def test_expression_guards_unreachable_calls_and_caller_index(self):
+        _, result = self.inspect({'x.py': '''def yes(): return 1
+def no(): return 0
+def danger(): return -1
+def entry(flag):
+    return yes() if flag else no()
+    danger()
+'''})
+        entry = self.scope(result, 'entry')
+        calls = [call for node in Analyzer.walk_flow(entry['flow']) for call in node['calls']]
+        branches = {call['name']: call['guards'][0]['branch'] for call in calls[:2]}
+        self.assertEqual(branches, {'yes': 'true', 'no': 'false'})
+        self.assertTrue(calls[2]['unreachable'])
+        self.assertNotIn(entry['id'], self.scope(result, 'danger')['callers'])
+        self.assertEqual(calls[2]['executionContext']['kind'], 'function body')
+
+    def test_first_comprehension_iterable_is_not_guarded_by_iteration(self):
+        _, result = self.inspect({'x.py': '''def source(): return [1]
+def visit(x): return x
+def entry():
+    return [visit(x) for x in source()]
+'''})
+        calls = {call['name']: call for call in self.scope(result, 'entry')['flow'][0]['calls']}
+        self.assertEqual(calls['source']['guards'], [])
+        self.assertFalse(calls['source']['conditional'])
+        self.assertEqual(calls['visit']['guards'][0]['kind'], 'comprehension')
+        self.assertTrue(calls['visit']['conditional'])
+
+    def test_class_comprehension_body_cannot_see_class_names(self):
+        _, result = self.inspect({'x.py': '''class Example:
+    def helper(): return [1]
+    values = [helper() for _ in helper()]
+'''})
+        operations = self.scope(result, 'Example')['flow']
+        calls = [call for node in operations for call in node['calls'] if call['name'] == 'helper']
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([call['status'] for call in calls], ['unknown', 'supported'])
+        self.assertFalse(calls[1]['conditional'])
+
+    def test_generator_first_iterable_is_eager_but_element_is_deferred(self):
+        _, result = self.inspect({'x.py': '''def source(): return [1]
+def visit(x): return x
+def entry():
+    return (visit(x) for x in source())
+'''})
+        calls = {call['name']: call for call in self.scope(result, 'entry')['flow'][0]['calls']}
+        self.assertEqual(calls['source']['executionContext'], {'kind': 'function body', 'deferred': False})
+        self.assertEqual(calls['visit']['executionContext'], {'kind': 'generator expression', 'deferred': True})
+
+    def test_shadowed_super_does_not_infer_base_member(self):
+        _, result = self.inspect({'x.py': '''class Base:
+    def helper(self): return 1
+class Child(Base):
+    def entry(self, super): return super().helper()
+'''})
+        call = next(call for call in self.scope(result, 'Child.entry')['flow'][0]['calls']
+                    if call['name'] == 'super().helper')
+        self.assertEqual((call['status'], call['targets']), ('unknown', []))
+
+    def test_known_multiple_inheritance_uses_c3_order(self):
+        _, result = self.inspect({'x.py': '''class Left:
+    def helper(self): return 1
+class Right:
+    def helper(self): return 2
+class Child(Left, Right):
+    def entry(self): return self.helper(), super().helper()
+class Base:
+    def work(self): return 1
+class First(Base): pass
+class Second(Base):
+    def work(self): return 2
+class Diamond(First, Second):
+    def entry(self): return self.work()
+class UnknownBase(ExternalBase, Left):
+    def entry(self): return self.helper()
+'''})
+        child_calls = [call for call in self.scope(result, 'Child.entry')['flow'][0]['calls']
+                       if call['name'].endswith('.helper')]
+        self.assertEqual(len(child_calls), 2)
+        for call in child_calls:
+            self.assertEqual(call['status'], 'possible')
+            self.assertEqual([result['scopes'][target]['qualified'] for target in call['targets']], ['Left.helper'])
+        diamond = self.scope(result, 'Diamond.entry')['flow'][0]['calls'][0]
+        self.assertEqual([result['scopes'][target]['qualified'] for target in diamond['targets']], ['Second.work'])
+        uncertain = self.scope(result, 'UnknownBase.entry')['flow'][0]['calls'][0]
+        self.assertEqual(uncertain['status'], 'possible')
+        self.assertEqual([result['scopes'][target]['qualified'] for target in uncertain['targets']], ['Left.helper'])
+
+    def test_property_result_is_not_the_getter_call_target(self):
+        _, result = self.inspect({'x.py': '''class Service:
+    @property
+    def handler(self): return lambda: 1
+    def entry(self): return self.handler()
+def external(service: Service): return service.handler()
+'''})
+        for qualified in ('Service.entry', 'external'):
+            call = self.scope(result, qualified)['flow'][0]['calls'][0]
+            self.assertEqual((call['status'], call['targets']), ('unknown', []))
+            self.assertEqual(call['reasonCode'], 'descriptor_result')
+            self.assertIn('callable result', call['reason'])
+        self.assertEqual(self.scope(result, 'Service.handler')['callers'], [])
+
+    def test_conflicting_instance_assignments_remain_possible(self):
+        _, result = self.inspect({'x.py': '''class RepoA:
+    def get(self): return 1
+class RepoB:
+    def get(self): return 2
+class Service:
+    def __init__(self, flag):
+        self.repo = RepoA() if flag else RepoB()
+    def entry(self):
+        return self.repo.get()
+'''})
+        call = self.scope(result, 'Service.entry')['flow'][0]['calls'][0]
+        self.assertEqual(call['status'], 'possible')
+        self.assertEqual({result['scopes'][target]['qualified'] for target in call['targets']},
+                         {'RepoA.get', 'RepoB.get'})
+
+    def test_annotated_instance_assignment_has_source_provenance(self):
+        _, result = self.inspect({'x.py': '''class Repo:
+    def get(self): return 1
+class Service:
+    def __init__(self):
+        self.repo: Repo = Repo()
+    def entry(self): return self.repo.get()
+'''})
+        call = self.scope(result, 'Service.entry')['flow'][0]['calls'][0]
+        self.assertEqual(call['status'], 'possible')
+        self.assertEqual([result['scopes'][target]['qualified'] for target in call['targets']], ['Repo.get'])
+        self.assertEqual([proof['span']['start'] for proof in call['candidateEvidence']], [5])
+        self.assertEqual(call['candidateEvidence'][0]['receiverType'], 'Repo')
+
+    def test_manifest_router_prefix_and_effect_tokens(self):
+        _, result = self.inspect({'api.py': '''router = APIRouter(prefix='/v1')
+def entry(x, bag):
+    x.address()
+    bag.add(1)
+''', 'bad.py': 'def broken('})
+        self.assertEqual(result['routerPrefixes']['api.py:router'], '/v1')
+        self.assertEqual(result['discoveryManifest']['bad.py']['status'], 'error')
+        self.assertIsNotNone(result['discoveryManifest']['bad.py']['hash'])
+        nodes = self.scope(result, 'entry')['flow']
+        self.assertFalse(any('possible effect' in effect for effect in nodes[0]['effects']))
+        self.assertTrue(any('possible effect: bag.add' == effect for effect in nodes[1]['effects']))
+
+    def test_global_enclosing_and_lazy_type_alias_scopes_remain_distinct(self):
+        _, result = self.inspect({'case.py': '''def helper():
+    return 1
+class Box:
+    def local():
+        return 2
+    type Alias = local()
+    def entry(self):
+        return helper()
+def outer():
+    def inner():
+        return helper()
+    return inner()
+'''})
+        method_call = self.scope(result, 'Box.entry')['flow'][0]['calls'][0]
+        enclosing_call = self.scope(result, 'outer.inner')['flow'][0]['calls'][0]
+        self.assertEqual(method_call['status'], 'supported')
+        self.assertEqual(enclosing_call['status'], 'supported')
+        alias_call = next(call for node in Analyzer.walk_flow(self.scope(result, 'Box')['flow'])
+                          for call in node['calls'] if call['name'] == 'local')
+        self.assertEqual(alias_call['status'], 'supported')
+        self.assertEqual(alias_call['executionContext'], {'kind': 'type alias value', 'deferred': True})
+        self.assertTrue(alias_call['execution'].startswith('deferred type alias'))
 
     def test_symlink_and_environment_exclusions(self):
         with tempfile.TemporaryDirectory() as directory:

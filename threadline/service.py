@@ -12,11 +12,13 @@ from typing import Any
 from .analyzer import analyze, AnalysisLimitError
 from .workflows import generic_workflow, suggested_entrypoints, workflow_catalog
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 MAX_PAGE = 100
 MAX_WORKFLOW_CACHE_BYTES = 16 * 1024 * 1024
 MAX_WORKFLOW_CACHE_ENTRIES = 32
-CHANGE_CATEGORIES = ('changedMethods', 'previousMethods', 'knownCallers', 'baselineCallers', 'possibleImpact')
+CHANGE_CATEGORIES = ('files', 'changedMethods', 'previousMethods', 'renamedMethods',
+                     'previousRenamedMethods', 'unassessedChanges', 'knownCallers',
+                     'baselineCallers', 'possibleImpact')
 
 
 class ThreadlineError(ValueError):
@@ -37,11 +39,37 @@ def _snapshot_id(model: dict[str, Any]) -> str:
     digest = hashlib.sha256()
     digest.update(SCHEMA_VERSION.encode())
     digest.update(model.get("configuration", "").encode())
+    digest.update(json.dumps(model.get('configurationManifest', {}), sort_keys=True, ensure_ascii=True).encode())
     digest.update(json.dumps(model.get("analysisOptions", {}), sort_keys=True).encode())
     for name, info in sorted(model["files"].items()):
         digest.update(name.encode("utf-8", "surrogatepass"))
         digest.update(info["hash"].encode())
+    # Successfully parsed files alone cannot identify diagnostic changes. The
+    # discovery manifest also records source hashes for parse failures and the
+    # state of files that could not be read.
+    manifest = model.get('discoveryManifest', {})
+    digest.update(json.dumps(manifest, sort_keys=True, ensure_ascii=True).encode())
+    errors = sorted(model.get('errors', []), key=lambda item: (item.get('file', ''), item.get('message', '')))
+    excluded = sorted(model.get('excluded', []), key=lambda item: (item.get('path', ''), item.get('reason', '')))
+    digest.update(json.dumps(errors, sort_keys=True, ensure_ascii=True).encode())
+    digest.update(json.dumps(excluded, sort_keys=True, ensure_ascii=True).encode())
     return digest.hexdigest()[:20]
+
+
+def _source_info(model: dict[str, Any], file: str) -> dict[str, Any] | None:
+    if file in model['files']:
+        return model['files'][file]
+    if file != 'pyproject.toml':
+        return None
+    manifest = model.get('configurationManifest')
+    source = model.get('configuration', '')
+    if manifest is None:
+        if not source:
+            return None
+        return {'source': source, 'hash': hashlib.sha256(source.encode('utf-8')).hexdigest()}
+    if not manifest.get('present') or manifest.get('hash') is None or manifest.get('error'):
+        return None
+    return {'source': source, 'hash': manifest['hash']}
 
 
 def evidence_id(span: dict[str, Any]) -> str:
@@ -67,7 +95,13 @@ def add_evidence_ids(value: Any) -> Any:
 
 
 class SnapshotStore:
-    """Keeps a bounded set of immutable analysis snapshots for one allowed root."""
+    """Keep bounded snapshots for one root and return detached query results.
+
+    ``model`` and ``current`` expose owned internal dictionaries for integrations
+    that attach derived records such as change reviews. Callers using those raw
+    handles must not mutate source analysis fields. The public query methods
+    return detached result dictionaries that may be changed safely by callers.
+    """
 
     def __init__(self, root: str | Path, *, retention: int = 2, source_roots=None, exclude=None):
         self.root = Path(root).expanduser().resolve()
@@ -80,6 +114,7 @@ class SnapshotStore:
         self._order: deque[str] = deque()
         self.current_id: str | None = None
         self._evidence = {}
+        self._registered_evidence = {}
         self._evidence_lock = threading.Lock()
         self._workflow_cache = OrderedDict()
         self._workflow_cache_bytes = 0
@@ -93,17 +128,24 @@ class SnapshotStore:
         snapshot_id = _snapshot_id(model)
         model["schemaVersion"] = SCHEMA_VERSION
         model["snapshotId"] = snapshot_id
-        model["entrypoints"] = suggested_entrypoints(model)
-        model["catalog"] = workflow_catalog(model)
         if snapshot_id not in self._models:
+            if 'entrypoints' not in model:
+                model["entrypoints"] = suggested_entrypoints(model)
+            model["catalog"] = workflow_catalog(model)
             self._models[snapshot_id] = model
             self._order.append(snapshot_id)
+        else:
+            model = self._models[snapshot_id]
         self.current_id = snapshot_id
         self._trim()
         return model
 
     def retain(self, model: dict[str, Any]) -> str:
-        """Retain an already analyzed model without changing the current snapshot."""
+        """Take ownership of an analyzed model without changing the current snapshot.
+
+        The caller must not mutate the supplied model after handing it to this
+        store. Query methods return detached data transfer objects.
+        """
         snapshot_id = model.get('snapshotId') or _snapshot_id(model)
         model['schemaVersion'] = SCHEMA_VERSION; model['snapshotId'] = snapshot_id
         if snapshot_id not in self._models:
@@ -117,6 +159,7 @@ class SnapshotStore:
             if expired is None: break
             self._order.remove(expired); self._models.pop(expired, None)
             self._evidence.pop(expired, None)
+            self._registered_evidence.pop(expired, None)
             with self._workflow_lock:
                 for key in list(self._workflow_cache):
                     if key[0] == expired:
@@ -140,18 +183,25 @@ class SnapshotStore:
 
     def summary(self, *, refresh: bool = False, snapshot_id=None, cursor: int = 0, limit: int = 25) -> dict[str, Any]:
         model = self.refresh() if refresh else self.model(snapshot_id)
-        entries = [add_evidence_ids(item) for item in model["entrypoints"]]
-        coverage={key:value for key,value in model['coverage'].items() if key not in ('unmodeledCalls','constructs')}
+        entries = add_evidence_ids(_page(model["entrypoints"], cursor, limit))
+        coverage=copy.deepcopy({key:value for key,value in model['coverage'].items() if key not in ('unmodeledCalls','constructs')})
         coverage['unmodeledCalls']=len(model['coverage']['unmodeledCalls'])
         changes = model.get('changes', {})
         change_summary = {key: changes[key] for key in ('base', 'baseSnapshotId', 'workingSnapshotId') if key in changes}
         if changes:
             change_summary['counts'] = {key: len(changes.get(key, [])) for key in CHANGE_CATEGORIES}
+        analysis_errors = model['errors']
+        parse_errors = [error for error in analysis_errors if error['file'].endswith('.py')]
+        configuration_errors = [error for error in analysis_errors
+                                if error.get('kind') == 'configuration']
         return {"schemaVersion": model["schemaVersion"], "snapshotId": model["snapshotId"],
-                "project": model["project"], "root": str(self.root), "coverage": coverage, "limits": model["limits"],
+                "project": model["project"], "root": str(self.root), "coverage": coverage, "limits": list(model["limits"]),
                 "changes": change_summary,
-                "diagnostics": {"parseErrors": _page(model["errors"], cursor, limit), "excluded": _page(model["excluded"], cursor, limit)},
-                "entrypoints": _page(entries, cursor, limit)}
+                "diagnostics": {"analysisErrors": copy.deepcopy(_page(analysis_errors, cursor, limit)),
+                                "parseErrors": copy.deepcopy(_page(parse_errors, cursor, limit)),
+                                "configurationErrors": copy.deepcopy(_page(configuration_errors, cursor, limit)),
+                                "excluded": copy.deepcopy(_page(model["excluded"], cursor, limit))},
+                "entrypoints": entries}
 
     def starts(self, *, snapshot_id=None, query='', category=None, method=None, cursor=0, limit=6):
         model = self.model(snapshot_id)
@@ -219,7 +269,8 @@ class SnapshotStore:
                          "entrypoint": scope["id"] in entries, "evidenceId": evidence_id(scope["span"]),
                          "span": scope["span"], "stats": scope["stats"], "decorators": scope["decorators"]})
         rows.sort(key=lambda row: (not row["entrypoint"], row["file"], row["line"], row["qualified"]))
-        return {"snapshotId": model["snapshotId"], "query": query, "symbols": _page(rows, cursor, limit)}
+        return {"snapshotId": model["snapshotId"], "query": query,
+                "symbols": copy.deepcopy(_page(rows, cursor, limit))}
 
     def get_workflow(self, entrypoint_id: str, *, snapshot_id: str | None = None,
                      cursor: int = 0, limit: int = 40) -> dict[str, Any]:
@@ -276,8 +327,9 @@ class SnapshotStore:
             for call in node['calls']: reference_ids.update(call['targets'])
         def metadata(item):
             return {key: value for key, value in item.items() if key not in ('flow', 'callers')}
-        return {'snapshotId': model['snapshotId'], 'scope': metadata(scope),
-                'flow': page, 'references': {key: metadata(model['scopes'][key]) for key in reference_ids}}
+        return copy.deepcopy({'snapshotId': model['snapshotId'], 'scope': metadata(scope),
+                              'flow': page,
+                              'references': {key: metadata(model['scopes'][key]) for key in reference_ids}})
 
     def get_branch(self, symbol_id, operation_id, arm, *, snapshot_id=None, cursor=0, limit=20):
         model = self.model(snapshot_id)
@@ -290,7 +342,7 @@ class SnapshotStore:
         return self._scope_page(model, scope, operation['branches'][arm]['nodes'], cursor, limit, True)
 
     def compare_change(self, symbol_id, *, snapshot_id=None, side='working', cursor=0, limit=40):
-        """Pair unique syntactic identities and page original lines from both snapshots."""
+        """Pair a callable in a changed file and page source from both snapshots."""
         model = self.model(snapshot_id)
         changes = model.get('changes')
         if not changes or side not in ('working', 'base'):
@@ -299,19 +351,45 @@ class SnapshotStore:
         baseline = self.model(changes['baseSnapshotId'])
         selected_model = model if side == 'working' else baseline
         selected = selected_model['scopes'].get(symbol_id)
-        category = 'changedMethods' if side == 'working' else 'previousMethods'
-        if selected is None or not any(row['id'] == symbol_id for row in changes[category]):
-            raise ThreadlineError('Select a changed or previous definition')
-        file_map = {row.get('oldPath', row['path']): row['path'] for row in changes['files']}
-        other_file = (next((old for old, new in file_map.items() if new == selected['file']), selected['file'])
-                      if side == 'working' else file_map.get(selected['file'], selected['file']))
+        if selected is None or selected['kind'] in ('module', 'class'):
+            raise ThreadlineError('Select a callable definition in a changed file')
+        categories = ('changedMethods', 'renamedMethods') if side == 'working' else ('previousMethods', 'previousRenamedMethods')
+        selected_row = next((row for category in categories for row in changes.get(category, [])
+                             if row['id'] == symbol_id), None)
+        changed_files = {row['path'] if side == 'working' else row.get('oldPath', row['path'])
+                         for row in changes['files']}
+        if selected_row is None and selected['file'] not in changed_files:
+            raise ThreadlineError('Select a callable definition in a changed file')
         other_model = baseline if side == 'working' else model
-        candidates = [scope for scope in other_model['scopes'].values()
-                      if scope['file'] == other_file and scope['qualified'] == selected['qualified'] and scope['kind'] == selected['kind']]
-        own_matches = [scope for scope in selected_model['scopes'].values()
-                       if scope['file'] == selected['file'] and scope['qualified'] == selected['qualified'] and scope['kind'] == selected['kind']]
-        ambiguous = len(candidates) > 1 or len(own_matches) > 1
-        counterpart = candidates[0] if len(candidates) == 1 and not ambiguous else None
+        if selected_row is None:
+            # An unrelated edit can move a definition's occurrence ID without
+            # changing its body. Compare it on demand without listing it as a
+            # content edit or inventing an unambiguous counterpart.
+            old_to_new = {row['oldPath']: row['path'] for row in changes['files'] if row.get('oldPath')}
+            new_to_old = {new: old for old, new in old_to_new.items()}
+            file_map = new_to_old if side == 'working' else old_to_new
+            other_file = file_map.get(selected['file'], selected['file'])
+            key = (selected['qualified'], selected['kind'])
+            own_matches = [scope for scope in selected_model['scopes'].values()
+                           if scope['file'] == selected['file'] and
+                           (scope['qualified'], scope['kind']) == key]
+            candidates = [scope for scope in other_model['scopes'].values()
+                          if scope['file'] == other_file and
+                          (scope['qualified'], scope['kind']) == key]
+            if len(own_matches) > 1 or len(candidates) > 1 or any(
+                    error['file'] == other_file for error in other_model['errors']):
+                match = 'ambiguous'
+                counterpart_id = None
+            elif len(candidates) == 1:
+                match = 'paired'
+                counterpart_id = candidates[0]['id']
+            else:
+                match = 'added' if side == 'working' else 'deleted'
+                counterpart_id = None
+        else:
+            match = selected_row.get('match', 'ambiguous')
+            counterpart_id = selected_row.get('counterpartId') if match == 'paired' else None
+        counterpart = other_model['scopes'].get(counterpart_id) if counterpart_id else None
         before, after = (counterpart, selected) if side == 'working' else (selected, counterpart)
         def source_page(source_model, scope):
             if scope is None: return None
@@ -321,11 +399,24 @@ class SnapshotStore:
             return {'snapshotId': source_model['snapshotId'], 'name': scope['qualified'], 'span': span,
                     'lines': _page(rows, cursor, limit)}
         old_page, new_page = source_page(baseline, before), source_page(model, after)
-        unavailable = counterpart is None and (ambiguous or any(row.get('file') == other_file for row in other_model['errors']))
-        return {'snapshotId': model['snapshotId'], 'before': old_page, 'after': new_page,
-                'match': 'ambiguous' if unavailable else 'paired' if counterpart else 'added' if side == 'working' else 'deleted',
-                'notice': 'Matched by file and qualified name; this comparison does not establish behavioral equivalence.' if counterpart else 'No unique counterpart could be established.' if unavailable else 'No definition with this file and qualified name exists on the other side.',
-                'nextCursor': next((page['lines']['nextCursor'] for page in (old_page, new_page) if page and page['lines']['nextCursor'] is not None), None)}
+        source_overlap = (selected_row is not None and selected_row in changes.get(
+            'changedMethods' if side == 'working' else 'previousMethods', []))
+        if counterpart and selected_row is None:
+            notice = ('This definition does not overlap a changed hunk; it is paired by '
+                      'file and qualified name, independently of line position. '
+                      'This does not establish behavioral equivalence.')
+        elif counterpart:
+            notice = ('Matched by file and qualified name independently of line position; '
+                      'this comparison does not establish behavioral equivalence.')
+        elif match == 'ambiguous':
+            notice = 'No unique counterpart could be established.'
+        else:
+            notice = 'No definition with this file and qualified name exists on the other side.'
+        return copy.deepcopy({'snapshotId': model['snapshotId'], 'before': old_page, 'after': new_page,
+                'match': match, 'counterpartId': counterpart_id,
+                'sourceOverlap': source_overlap,
+                'notice': notice,
+                'nextCursor': next((page['lines']['nextCursor'] for page in (old_page, new_page) if page and page['lines']['nextCursor'] is not None), None)})
 
     def diagnostics(self, *, snapshot_id=None, category='errors', cursor=0, limit=25):
         model = self.model(snapshot_id)
@@ -334,7 +425,20 @@ class SnapshotStore:
         elif category in CHANGE_CATEGORIES:
             rows = model.get('changes', {}).get(category, [])
         else: raise ThreadlineError('Unknown diagnostic category')
-        return {'snapshotId': model['snapshotId'], 'rows': _page(rows, cursor, limit)}
+        return {'snapshotId': model['snapshotId'], 'rows': copy.deepcopy(_page(rows, cursor, limit))}
+
+    def register_change_evidence(self, snapshot_id, spans):
+        """Make file-level diff evidence retrievable without changing a model."""
+        model = self.model(snapshot_id)
+        with self._evidence_lock:
+            registered = self._registered_evidence.setdefault(snapshot_id, {})
+            for span in spans:
+                if (_source_info(model, span['file']) or {}).get('hash') != span['hash']:
+                    raise ThreadlineError('Change evidence does not belong to the snapshot')
+                identifier = evidence_id(span)
+                registered[identifier] = copy.deepcopy(span)
+                if snapshot_id in self._evidence:
+                    self._evidence[snapshot_id][identifier] = copy.deepcopy(span)
 
     def get_method(self, symbol_id: str, *, snapshot_id: str | None = None,
                    cursor: int = 0, limit: int = 50) -> dict[str, Any]:
@@ -346,8 +450,9 @@ class SnapshotStore:
         reference=add_evidence_ids({"span": scope["span"]})
         return {"snapshotId": model["snapshotId"], "id": scope["id"], "name": scope["qualified"],
                 "kind": scope["kind"], "file": scope["file"], "span": reference["span"], "evidenceId": reference["evidenceId"],
-                "inputs": scope["params"], "output": scope["output"], "decorators": scope["decorators"],
-                "stats": scope["stats"], "operations": _page(add_evidence_ids(operations), cursor, limit)}
+                "inputs": copy.deepcopy(scope["params"]), "output": copy.deepcopy(scope["output"]),
+                "decorators": list(scope["decorators"]), "stats": copy.deepcopy(scope["stats"]),
+                "operations": add_evidence_ids(_page(operations, cursor, limit))}
 
     def get_source(self, *, snapshot_id: str | None = None, evidence: str | None = None,
                    file: str | None = None, start: int | None = None, end: int | None = None) -> dict[str, Any]:
@@ -367,8 +472,26 @@ class SnapshotStore:
                             for child in value: visit(child)
                     visit(model['scopes'])
                     visit(model.get('workflows', {}))
+                    index.update(self._registered_evidence.get(model['snapshotId'], {}))
                     self._evidence[model['snapshotId']] = index
                 match = self._evidence[model['snapshotId']].get(evidence)
+                if match is None:
+                    # Change records may be attached after the base snapshot's
+                    # ordinary scope-evidence index was built.
+                    for retained in self._models.values():
+                        changes = retained.get('changes', {})
+                        for row in changes.get('unassessedChanges', []):
+                            expected = (changes.get('workingSnapshotId') if row['side'] == 'working'
+                                        else changes.get('baseSnapshotId'))
+                            span = row.get('span')
+                            if (expected == model['snapshotId'] and span
+                                    and (_source_info(model, span['file']) or {}).get('hash') == span['hash']
+                                    and evidence_id(span) == evidence):
+                                match = span
+                                self._evidence[model['snapshotId']][evidence] = span
+                                break
+                        if match is not None:
+                            break
             if match is None:
                 raise ThreadlineError(f"evidence ID was not found in snapshot: {evidence}")
             requested_span = copy.deepcopy(match)
@@ -376,9 +499,11 @@ class SnapshotStore:
         if not file:
             raise ThreadlineError("file or evidence is required")
         clean = PurePosixPath(file)
-        if clean.is_absolute() or ".." in clean.parts or clean.as_posix() not in model["files"]:
+        if clean.is_absolute() or ".." in clean.parts:
             raise ThreadlineError(f"file is outside the analyzed snapshot: {file}")
-        info = model["files"][clean.as_posix()]
+        info = _source_info(model, clean.as_posix())
+        if info is None:
+            raise ThreadlineError(f"file is outside the analyzed snapshot: {file}")
         line_count = len(info["source"].splitlines())
         start = 1 if start is None else start
         end = min(line_count, start + 79) if end is None else end
@@ -417,20 +542,3 @@ def _flatten_flow(nodes):
         yield node
         for branch in node["branches"]:
             yield from _flatten_flow(branch["nodes"])
-
-
-def _find_evidence(model: dict[str, Any], requested: str) -> dict[str, Any] | None:
-    for scope in model["scopes"].values():
-        spans = [scope["span"]]
-        spans.extend(node["span"] for node in _flatten_flow(scope["flow"]))
-        for node in _flatten_flow(scope["flow"]):
-            spans.extend(call["span"] for call in node["calls"])
-        for span in spans:
-            if evidence_id(span) == requested:
-                return span
-    for profile in model.get("workflows", {}).get("profiles", []):
-        for item in profile.get("links", []) + profile.get("outcomes", []):
-            for proof in item.get("evidence", []):
-                if evidence_id(proof["span"]) == requested:
-                    return proof["span"]
-    return None

@@ -77,7 +77,9 @@ class Analyzer:
         self.source_roots = [self._inside(path) for path in (source_roots or ['.'])]
         self.user_excluded = {Path(path).as_posix().strip('/') for path in (exclude or [])}
         self.files = {}
+        self.discovery_manifest = {}
         self.scopes = {}
+        self.scope_nodes = {}
         self.ast_scopes = {}
         self.node_files = {}
         self.parents = {}
@@ -85,19 +87,39 @@ class Analyzer:
         self.module_scopes = {}
         self.module_aliases = {}
         self.instances = {}
+        self.class_attributes = defaultdict(lambda: defaultdict(list))
+        self.parameter_nodes = {}
+        self.class_nodes = {}
+        self.mro_cache = {}
+        self.local_bindings = defaultdict(set)
+        self.declarations = defaultdict(lambda: {'global': set(), 'nonlocal': set()})
         self.rebindings = {}
         self.duplicate_definitions = defaultdict(list)
         self.ambiguous_imports = set()
+        self.import_nodes = defaultdict(list)
         self.excluded = []
         self.errors = []
         self.calls = []
         self.started = time.monotonic()
         self.total_bytes = 0
         self.total_nodes = 0
+        configuration_path = self.root / 'pyproject.toml'
+        configuration_raw = None
         try:
-            self.configuration = read_source_bytes(self.root / "pyproject.toml", self.root).decode("utf-8")
-        except (OSError, UnicodeError):
-            self.configuration = ""
+            configuration_raw = read_source_bytes(configuration_path, self.root)
+            self.configuration = configuration_raw.decode('utf-8')
+            self.configuration_manifest = {'present': True, 'hash': hashlib.sha256(configuration_raw).hexdigest()}
+        except (OSError, UnicodeError) as exc:
+            self.configuration = ''
+            present = configuration_path.exists() or configuration_path.is_symlink()
+            self.configuration_manifest = {'present': present, 'hash': hashlib.sha256(configuration_raw).hexdigest() if configuration_raw is not None else None}
+            if present:
+                self.configuration_manifest['error'] = type(exc).__name__ + ': ' + str(exc)
+                self.errors.append({
+                    'file': 'pyproject.toml',
+                    'message': 'Configuration could not be read: ' + self.configuration_manifest['error'],
+                    'kind': 'configuration',
+                })
         self.construct_counts = Counter()
 
 
@@ -121,7 +143,10 @@ class Analyzer:
                 'hash': self.files[file]['hash']}
 
     def ident(self, node, file, suffix=''):
-        return f"{file}:{getattr(node, 'lineno', 1)}:{getattr(node, 'col_offset', 0)}:{type(node).__name__}{suffix}"
+        return (f"{file}:{getattr(node, 'lineno', 1)}:{getattr(node, 'col_offset', 0)}:"
+                f"{getattr(node, 'end_lineno', getattr(node, 'lineno', 1))}:"
+                f"{getattr(node, 'end_col_offset', getattr(node, 'col_offset', 0))}:"
+                f"{type(node).__name__}{suffix}")
 
     def discover(self):
         seen = set()
@@ -144,8 +169,10 @@ class Analyzer:
                         raise AnalysisLimitError('Analysis budget exceeded; narrow --source-root or --exclude')
                     if path.is_symlink():
                         self.excluded.append({'path': file, 'reason': 'symlink'}); continue
+                    raw = None
                     try:
                         raw = read_source_bytes(path, self.root)
+                        self.discovery_manifest[file] = {'hash': hashlib.sha256(raw).hexdigest(), 'status': 'read'}
                         self.total_bytes += len(raw)
                         if self.total_bytes > MAX_TOTAL_BYTES:
                             raise AnalysisLimitError('Repository byte budget exceeded; narrow --source-root')
@@ -153,10 +180,15 @@ class Analyzer:
                         source = raw.decode(encoding)
                         tree = ast.parse(source, filename=file, type_comments=True)
                     except (SyntaxError, UnicodeError, OSError, RecursionError) as exc:
+                        self.discovery_manifest[file] = {
+                            'hash': hashlib.sha256(raw).hexdigest() if raw is not None else None,
+                            'status': 'error', 'error': type(exc).__name__ + ': ' + str(exc),
+                        }
                         self.errors.append({'file': file, 'message': str(exc)}); continue
                     self.total_nodes += sum(1 for _ in ast.walk(tree))
                     if self.total_nodes > MAX_AST_NODES:
                         raise AnalysisLimitError('AST node budget exceeded; narrow --source-root')
+                    self.discovery_manifest[file]['status'] = 'parsed'
                     self.files[file] = {'source': source, 'hash': hashlib.sha256(raw).hexdigest(), 'tree': tree, 'lines': len(source.splitlines())}
                     parts = list(path.relative_to(scan_root).with_suffix('').parts)
                     if scan_root == self.root and 'src' in parts:
@@ -194,7 +226,7 @@ class Analyzer:
                 params.append({'name': arg.arg, 'kind': 'keyword', 'default': text(default) if default is not None else None, 'annotation': text(arg.annotation) if arg.annotation else None})
             if args.kwarg:
                 params.append({'name': args.kwarg.arg, 'kind': 'kwargs', 'default': None})
-        scope = {'id': scope_id, 'file': file, 'name': name, 'qualified': qualified, 'module': module, 'kind': kind,
+        scope = {'id': scope_id, 'symbolKey': f'{module}:{qualified}:{kind}', 'file': file, 'name': name, 'qualified': qualified, 'module': module, 'kind': kind,
                  'parent': parent['id'] if parent else None, 'span': span, 'params': params, 'async': isinstance(node, ast.AsyncFunctionDef), 'generator': False,
                  'signature': short(text(node).split('\n')[0], 240), 'decorators': decorators, 'symbols': {}, 'imports': {}, 'flow': []}
         def own_yield(current):
@@ -228,7 +260,10 @@ class Analyzer:
             'responseModel': response_model,
         }
         self.scopes[scope_id] = scope
+        self.scope_nodes[scope_id] = node
         self.ast_scopes[id(node)] = scope_id
+        if isinstance(node, ast.ClassDef):
+            self.class_nodes[scope_id] = node
         if parent:
             parent['symbols'][name] = scope_id
             self.duplicate_definitions[(parent['id'], name)].append(scope_id)
@@ -253,11 +288,26 @@ class Analyzer:
     def lexical(self, scope, name):
         cursor = scope
         while cursor:
+            declarations = self.declarations[cursor['id']]
+            if name in declarations['global'] and cursor['kind'] != 'module':
+                cursor = self.scopes.get(self.module_scopes.get(cursor['module']))
+                if cursor and cursor['kind'] != 'module':
+                    cursor = None
+                continue
+            if name in declarations['nonlocal']:
+                cursor = self.scopes.get(cursor['parent'])
+                continue
+            # A class suite is not an enclosing lexical namespace for a method.
+            if cursor is not scope and cursor['kind'] == 'class':
+                cursor = self.scopes.get(cursor['parent'])
+                continue
             if name in cursor['symbols']:
                 return self.duplicate_definitions.get((cursor['id'], name), [cursor['symbols'][name]]), 'definition in lexical scope'
             if name in cursor['imports']:
                 imported = cursor['imports'][name]
                 return self.symbols.get(imported, []), f'import {imported}'
+            if name in self.local_bindings[cursor['id']]:
+                return [], 'local binding shadows enclosing definitions'
             cursor = self.scopes.get(cursor['parent'])
         return [], ''
 
@@ -283,24 +333,87 @@ class Analyzer:
                         key = alias.asname or alias.name
                         if key in scope['imports']: self.ambiguous_imports.add((scope['id'], key))
                         scope['imports'][key] = f'{prefix}.{alias.name}'
+                        self.import_nodes[(scope['id'], key)].append(child)
                 elif isinstance(child, ast.Import):
                     for alias in child.names:
                         key = alias.asname or alias.name.split('.')[0]
                         if key in scope['imports']: self.ambiguous_imports.add((scope['id'], key))
                         scope['imports'][key] = alias.name if alias.asname else alias.name.split('.')[0]
+                        self.import_nodes[(scope['id'], key)].append(child)
                 self.collect_imports(child, scope)
 
     def imported_name(self, scope, name):
         cursor = scope
         while cursor:
+            if cursor is not scope and cursor['kind'] == 'class':
+                cursor = self.scopes.get(cursor['parent'])
+                continue
             if name in cursor['imports']:
                 return cursor['imports'][name]
             cursor = self.scopes.get(cursor['parent'])
         return name
 
+    def imported_path(self, scope, node):
+        """Return a source-backed import path for a dotted expression."""
+        if isinstance(node, ast.Name):
+            cursor = scope
+            while cursor:
+                if cursor is not scope and cursor['kind'] == 'class':
+                    cursor = self.scopes.get(cursor['parent'])
+                    continue
+                if node.id in cursor['imports']:
+                    return cursor['imports'][node.id]
+                cursor = self.scopes.get(cursor['parent'])
+            return None
+        if isinstance(node, ast.Attribute):
+            base = self.imported_path(scope, node.value)
+            return base + '.' + node.attr if base else None
+        return None
+
+    @staticmethod
+    def bound_names(target):
+        if isinstance(target, ast.Name):
+            yield target.id
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                yield from Analyzer.bound_names(element)
+        elif isinstance(target, ast.Starred):
+            yield from Analyzer.bound_names(target.value)
+
+    @staticmethod
+    def pattern_names(pattern):
+        if isinstance(pattern, ast.MatchAs) and pattern.name:
+            yield pattern.name
+        if isinstance(pattern, ast.MatchStar) and pattern.name:
+            yield pattern.name
+        if isinstance(pattern, ast.MatchMapping) and pattern.rest:
+            yield pattern.rest
+        for child in ast.iter_child_nodes(pattern):
+            yield from Analyzer.pattern_names(child)
+
+    def add_instance(self, scope, name, type_name, evidence, origin_id=None):
+        key = (scope['id'], name)
+        candidate = (type_name, origin_id or scope['id'], evidence)
+        self.instances.setdefault(key, [])
+        if candidate not in self.instances[key]:
+            self.instances[key].append(candidate)
+
+    def value_type_candidates(self, value, scope):
+        if isinstance(value, ast.Call):
+            return [(text(value.func), scope['id'], 'constructor-shaped assignment')]
+        if isinstance(value, ast.Name):
+            return [(type_name, origin, 'forwarded from ' + value.id + ' (' + evidence + ')')
+                    for type_name, origin, evidence in self.instance_type(scope, value.id)]
+        if isinstance(value, ast.IfExp):
+            return self.value_type_candidates(value.body, scope) + self.value_type_candidates(value.orelse, scope)
+        return []
+
     def instance_type(self, scope, name):
         cursor = scope
         while cursor:
+            if cursor is not scope and cursor['kind'] == 'class':
+                cursor = self.scopes.get(cursor['parent'])
+                continue
             key = (cursor['id'], name)
             if key in self.instances:
                 return self.instances[key]
@@ -311,110 +424,542 @@ class Analyzer:
                         found = self.instances.get((module_id, imported[len(module) + 1:]))
                         if found:
                             return found
+            if name in self.local_bindings[cursor['id']]:
+                return []
             cursor = self.scopes.get(cursor['parent'])
-        return None
+        return []
 
     def collect_bindings(self, node, scope):
+        """Collect Python local binders without crossing a nested scope boundary."""
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-            for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
+            args = node.args
+            for arg in args.posonlyargs + args.args + args.kwonlyargs + [a for a in (args.vararg, args.kwarg) if a]:
+                self.local_bindings[scope['id']].add(arg.arg)
                 if isinstance(arg.annotation, (ast.Name, ast.Attribute)):
-                    self.instances[(scope['id'], arg.arg)] = (text(arg.annotation), scope['id'], 'parameter annotation')
+                    self.add_instance(scope, arg.arg, text(arg.annotation), 'parameter annotation')
+                    self.parameter_nodes[(scope['id'], arg.arg)] = arg
+
+        def declarations(child):
+            if isinstance(child, SCOPE_TYPES):
+                return
+            if isinstance(child, ast.Global):
+                self.declarations[scope['id']]['global'].update(child.names)
+            elif isinstance(child, ast.Nonlocal):
+                self.declarations[scope['id']]['nonlocal'].update(child.names)
+            for sub in ast.iter_child_nodes(child):
+                declarations(sub)
+
+        for child in ast.iter_child_nodes(node):
+            declarations(child)
+
+        def remember(target, value=None, annotation=None, source_node=None):
+            names = list(self.bound_names(target))
+            for name in names:
+                if name not in self.declarations[scope['id']]['global'] | self.declarations[scope['id']]['nonlocal']:
+                    self.local_bindings[scope['id']].add(name)
+                    self.rebindings.setdefault(scope['id'], set()).add(name)
+                candidates = self.value_type_candidates(value, scope) if len(names) == 1 else []
+                if isinstance(annotation, (ast.Name, ast.Attribute)):
+                    candidates.append((text(annotation), scope['id'], 'annotation'))
+                for type_name, origin, evidence in candidates:
+                    self.add_instance(scope, name, type_name, evidence, origin)
+            if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id in ('self', 'cls'):
+                owner = self.scopes.get(scope['parent'])
+                if owner and owner['kind'] == 'class':
+                    candidates = self.value_type_candidates(value, scope)
+                    if isinstance(annotation, (ast.Name, ast.Attribute)):
+                        candidates.append((text(annotation), scope['id'], 'instance attribute annotation'))
+                    for candidate in candidates:
+                        parameter = self.parameter_nodes.get((scope['id'], value.id)) if isinstance(value, ast.Name) else None
+                        documented = (*candidate, source_node or target, parameter)
+                        if documented not in self.class_attributes[owner['id']][target.attr]:
+                            self.class_attributes[owner['id']][target.attr].append(documented)
+
         def visit(child):
             if isinstance(child, SCOPE_TYPES):
                 self.collect_bindings(child, self.scopes[self.ast_scopes[id(child)]])
                 return
-            if isinstance(child, (ast.Assign, ast.AnnAssign)):
-                targets = child.targets if isinstance(child, ast.Assign) else [child.target]
-                for target in targets:
-                    name = text(target)
-                    self.rebindings.setdefault(scope['id'], set()).add(name)
-                    if isinstance(child.value, ast.Call):
-                        self.instances[(scope['id'], name)] = (text(child.value.func), scope['id'], 'constructor-shaped assignment')
-                    elif isinstance(child, ast.AnnAssign) and isinstance(child.annotation, (ast.Name, ast.Attribute)):
-                        self.instances[(scope['id'], name)] = (text(child.annotation), scope['id'], 'annotation')
+            if isinstance(child, ast.Assign):
+                for target in child.targets:
+                    remember(target, child.value, source_node=child)
+            elif isinstance(child, ast.AnnAssign):
+                remember(child.target, child.value, child.annotation, child)
+            elif isinstance(child, ast.AugAssign):
+                remember(child.target)
+            elif isinstance(child, (ast.For, ast.AsyncFor)):
+                remember(child.target)
+            elif isinstance(child, (ast.With, ast.AsyncWith)):
+                for item in child.items:
+                    if item.optional_vars:
+                        remember(item.optional_vars)
+            elif isinstance(child, ast.ExceptHandler) and child.name:
+                remember(ast.Name(id=child.name, ctx=ast.Store()))
+            elif isinstance(child, ast.NamedExpr):
+                remember(child.target, child.value)
+            elif isinstance(child, ast.match_case):
+                for name in self.pattern_names(child.pattern):
+                    remember(ast.Name(id=name, ctx=ast.Store()))
+            elif isinstance(child, ast.Delete):
+                for target in child.targets:
+                    remember(target)
+            elif isinstance(child, (ast.Import, ast.ImportFrom)):
+                for alias in child.names:
+                    name = alias.asname or (alias.name.split('.')[0] if isinstance(child, ast.Import) else alias.name)
+                    self.local_bindings[scope['id']].add(name)
             for sub in ast.iter_child_nodes(child):
                 visit(sub)
         for child in ast.iter_child_nodes(node):
             visit(child)
 
-    def resolve(self, func, scope):
-        name = text(func)
-        targets, reason = [], ''
-        if isinstance(func, ast.Lambda):
-            targets, reason = [self.ast_scopes[id(func)]], 'literal lambda'
-        elif isinstance(func, ast.Name):
-            targets, reason = self.lexical(scope, func.id)
-        elif isinstance(func, ast.Attribute):
-            if isinstance(func.value, ast.Name) and func.value.id in ('self', 'cls'):
-                parent = self.scopes.get(scope['parent'])
-                while parent and parent['kind'] != 'class':
-                    parent = self.scopes.get(parent['parent'])
-                if parent and func.attr in parent['symbols']:
-                    return [parent['symbols'][func.attr]], 'possible', 'class member; overrides or rebinding can change dispatch'
-            base_name = text(func.value)
-            inferred = self.instance_type(scope, base_name)
-            if inferred:
-                class_name, origin_id, evidence = inferred
-                origin = self.scopes[origin_id]
-                class_targets, _ = self.lexical(origin, class_name)
-                members = [self.scopes[t]['symbols'][func.attr] for t in class_targets if self.scopes[t]['kind'] == 'class' and func.attr in self.scopes[t]['symbols']]
-                if members:
-                    return members, 'possible', f'{evidence}: {base_name} may be {class_name}; runtime dispatch can vary'
-                imported_class = self.imported_name(origin, class_name)
-                if imported_class != class_name and not class_targets:
-                    return [], 'external', f'{evidence}: candidate {imported_class}.{func.attr}; implementation outside index'
+    def enclosing_class(self, scope):
+        cursor = scope
+        while cursor:
+            cursor = self.scopes.get(cursor['parent'])
+            if cursor and cursor['kind'] == 'class':
+                return cursor
+        return None
+
+    def class_reference(self, node, scope):
+        if isinstance(node, ast.Name):
+            targets, _ = self.lexical(scope, node.id)
+        else:
+            path = self.imported_path(scope, node)
+            targets = self.symbols.get(path, []) if path else []
+        return [target for target in targets if self.scopes[target]['kind'] == 'class']
+
+    def class_reference_text(self, name, scope):
+        try:
+            expression = ast.parse(name, mode='eval').body
+        except SyntaxError:
+            return []
+        return self.class_reference(expression, scope)
+
+    def member_targets(self, class_id, member, seen=None):
+        """Find source candidates in a class and statically identifiable bases."""
+        seen = set() if seen is None else seen
+        if class_id in seen:
+            return []
+        seen.add(class_id)
+        scope = self.scopes[class_id]
+        direct = self.duplicate_definitions.get((class_id, member), [])
+        if direct:
+            return direct
+        order = self.class_mro(class_id)
+        if order is not None:
+            for base_id in order[1:]:
+                direct = self.duplicate_definitions.get((base_id, member), [])
+                if direct:
+                    return direct
+            return []
+        node = self.class_nodes.get(class_id)
+        if not node:
+            return []
+        origin = self.scopes.get(scope['parent'])
+        inherited = []
+        for base in node.bases:
+            for base_id in self.class_reference(base, origin):
+                inherited.extend(self.member_targets(base_id, member, seen.copy()))
+        return list(dict.fromkeys(inherited))
+
+    def class_mro(self, class_id, active=None):
+        """Return source-class C3 order only when every base is unambiguous."""
+        if class_id in self.mro_cache:
+            return self.mro_cache[class_id]
+        active = set() if active is None else active
+        if class_id in active:
+            return None
+        active.add(class_id)
+        node = self.class_nodes.get(class_id)
+        if node is None or node.keywords or self.scopes[class_id]['decorators']:
+            return None
+        origin = self.scopes.get(self.scopes[class_id]['parent'])
+        bases = []
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id == 'object' and self.lexical(origin, 'object') == ([], ''):
+                continue
+            candidates = self.class_reference(base, origin)
+            if len(candidates) != 1:
+                self.mro_cache[class_id] = None
+                return None
+            bases.append(candidates[0])
+        sequences = []
+        for base_id in bases:
+            base_order = self.class_mro(base_id, active.copy())
+            if base_order is None:
+                self.mro_cache[class_id] = None
+                return None
+            sequences.append(list(base_order))
+        sequences.append(list(bases))
+        order = [class_id]
+        while any(sequences):
+            candidate = next((sequence[0] for sequence in sequences if sequence
+                              and not any(sequence[0] in other[1:] for other in sequences)), None)
+            if candidate is None:
+                self.mro_cache[class_id] = None
+                return None
+            order.append(candidate)
+            for sequence in sequences:
+                if sequence and sequence[0] == candidate:
+                    sequence.pop(0)
+        self.mro_cache[class_id] = order
+        return order
+
+    def descriptor_methods(self, targets):
+        descriptor = []
+        ordinary = []
+        for target_id in targets:
+            decorators = self.scopes[target_id]['decorators']
+            if any(decorator.split('(')[0].split('.')[-1] in ('property', 'cached_property', 'setter', 'deleter')
+                   for decorator in decorators):
+                descriptor.append(target_id)
+            else:
+                ordinary.append(target_id)
+        return ordinary, descriptor
+
+    def callable_member_result(self, targets, status, reason, scope=None, receiver=None, call_node=None):
+        ordinary, descriptors = self.descriptor_methods(targets)
+        if descriptors and not ordinary:
+            return [], 'unknown', 'descriptor getter is accessed before this call; its callable result is not resolved'
+        if descriptors:
+            status = 'possible'
+            reason += '; a descriptor may instead supply the callable result'
+        return self.target_result(ordinary, status, reason, scope, receiver, call_node)
+
+    def class_attribute_candidates(self, class_id, attribute, seen=None):
+        seen = set() if seen is None else seen
+        if class_id in seen:
+            return []
+        seen.add(class_id)
+        own = list(self.class_attributes[class_id].get(attribute, []))
+        node = self.class_nodes.get(class_id)
+        if not node:
+            return own
+        origin = self.scopes.get(self.scopes[class_id]['parent'])
+        for base in node.bases:
+            for base_id in self.class_reference(base, origin):
+                own.extend(self.class_attribute_candidates(base_id, attribute, seen.copy()))
+        return list(dict.fromkeys(own))
+
+    def inferred_instance_candidates(self, receiver, scope):
+        if isinstance(receiver, ast.Name):
+            return self.instance_type(scope, receiver.id)
+        if isinstance(receiver, ast.Attribute) and isinstance(receiver.value, ast.Name) and receiver.value.id in ('self', 'cls'):
+            owner = self.enclosing_class(scope)
+            if owner:
+                return self.class_attribute_candidates(owner['id'], receiver.attr)
+        if isinstance(receiver, ast.Call):
+            class_ids = self.class_reference(receiver.func, scope)
+            return [(self.scopes[class_id]['name'], class_id, 'constructor expression') for class_id in class_ids]
+        if isinstance(receiver, ast.Attribute):
+            path = self.imported_path(scope, receiver)
+            if path:
+                for module, module_id in self.module_scopes.items():
+                    if path.startswith(module + '.'):
+                        candidates = self.instances.get((module_id, path[len(module) + 1:]), [])
+                        if candidates:
+                            return candidates
+        return []
+
+    def receiver_evidence(self, func, scope, targets):
+        if not isinstance(func, ast.Attribute) or not targets:
+            return []
+        rows = []
+        seen = set()
+        for candidate in self.inferred_instance_candidates(func.value, scope):
+            if len(candidate) < 4:
+                continue
+            class_name, origin_id, explanation, assignment = candidate[:4]
+            origin = self.scopes[origin_id]
+            classes = ([origin_id] if origin['kind'] == 'class' and origin['name'] == class_name
+                       else self.class_reference_text(class_name, origin))
+            if not any(target in self.member_targets(class_id, func.attr)
+                       for class_id in classes for target in targets):
+                continue
+            for node, label in ((assignment, 'Instance attribute assignment: ' + explanation),
+                                (candidate[4] if len(candidate) > 4 else None,
+                                 'Parameter type annotation for the assigned value')):
+                if node is None:
+                    continue
+                file = self.node_files.get(id(node), origin['file'])
+                span = self.span(node, file)
+                key = (file, span['start'], span['col'], span['end'], span['endCol'], class_name)
+                if key not in seen:
+                    seen.add(key)
+                    rows.append({'scope': origin_id, 'receiverType': class_name, 'label': label, 'span': span})
+        return rows
+
+    def binding_timing_note(self, scope, name, call_node):
+        """An in-scope import or definition must be reached before it binds."""
+        if name not in scope['symbols'] and name not in scope['imports']:
+            return ''
+        if name in scope['symbols'] and name in scope['imports']:
+            return 'multiple local definitions and imports can bind this name'
+        if name in scope['symbols']:
+            nodes = [self.scope_nodes[target]
+                     for target in self.duplicate_definitions.get((scope['id'], name), [])]
+        else:
+            nodes = self.import_nodes[(scope['id'], name)]
+        owner = self.scope_nodes[scope['id']]
+        call_position = (call_node.lineno, call_node.col_offset)
+        if any(self.parents.get(id(node)) is owner
+               and (node.lineno, node.col_offset) < call_position for node in nodes):
+            return ''
+        return 'local definition or import may not be bound before this call'
+
+    def target_result(self, targets, status, reason, scope=None, receiver=None, call_node=None):
+        targets = list(dict.fromkeys(targets))
+        if not targets:
+            return [], status, reason
+        decorated = any(self.scopes[target]['decorators'] for target in targets)
+        shadowed = False
+        if scope and receiver:
             cursor = scope
             while cursor:
-                if base_name in cursor['imports']:
-                    path = cursor['imports'][base_name] + '.' + func.attr
-                    targets, reason = self.symbols.get(path, []), f'import {path}'
-                    break
-                cursor = self.scopes.get(cursor['parent'])
-        if targets:
-            decorated = any(self.scopes[t]['decorators'] for t in targets)
-            shadowed = False
-            receiver = name.split('.')[0]
-            cursor = scope
-            while cursor:
-                shadowed |= any(p['name'] in (name, receiver) for p in cursor['params'])
-                shadowed |= any(binding in (name, receiver) for binding in self.rebindings.get(cursor['id'], set()))
+                shadowed |= receiver in self.rebindings.get(cursor['id'], set())
+                shadowed |= any(param['name'] == receiver for param in cursor['params'])
                 shadowed |= (cursor['id'], receiver) in self.ambiguous_imports
                 cursor = self.scopes.get(cursor['parent'])
-            return targets, 'possible' if decorated or shadowed or len(targets) != 1 else 'supported', reason + ('; decorators may wrap the target' if decorated else '') + ('; local binding may shadow the definition' if shadowed else '')
-        if reason.startswith('import '):
-            return [], 'external', reason + '; implementation not indexed'
-        builtins = {'str', 'int', 'bool', 'float', 'list', 'dict', 'set', 'tuple', 'len', 'print', 'range', 'enumerate', 'zip', 'sum', 'min', 'max', 'sorted', 'isinstance', 'getattr', 'setattr', 'hasattr', 'open', 'super', 'Exception', 'ValueError', 'TypeError', 'RuntimeError', 'next', 'iter', 'any', 'all', 'repr'}
-        if isinstance(func, ast.Name) and name in builtins:
-            return [], 'external', 'builtin candidate; runtime rebinding is possible'
+        if decorated or shadowed or len(targets) != 1:
+            status = 'possible'
+        timing = self.binding_timing_note(scope, receiver, call_node) if scope and receiver and call_node else ''
+        if timing:
+            status = 'possible'
+            reason += '; ' + timing
+        if decorated:
+            reason += '; decorators may wrap the target'
+        if shadowed:
+            reason += '; local binding may shadow the definition'
+        return targets, status, reason
+
+    def comprehension_binds(self, node, name, scope):
+        """Comprehension targets are local to that expression, not its function."""
+        cursor = node
+        while cursor and self.ast_scopes.get(id(cursor)) != scope['id']:
+            if isinstance(cursor, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                first_iter = cursor.generators[0].iter if cursor.generators else None
+                ancestor = node
+                in_first_iter = False
+                while ancestor and ancestor is not cursor:
+                    if ancestor is first_iter:
+                        in_first_iter = True
+                        break
+                    ancestor = self.parents.get(id(ancestor))
+                if not in_first_iter and any(name in self.bound_names(generator.target) for generator in cursor.generators):
+                    return True
+            cursor = self.parents.get(id(cursor))
+        return False
+
+    def in_comprehension_body(self, node, scope):
+        cursor = node
+        while cursor and self.ast_scopes.get(id(cursor)) != scope['id']:
+            if isinstance(cursor, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                first_iter = cursor.generators[0].iter if cursor.generators else None
+                ancestor = node
+                while ancestor and ancestor is not cursor and ancestor is not first_iter:
+                    ancestor = self.parents.get(id(ancestor))
+                if ancestor is not first_iter:
+                    return True
+            cursor = self.parents.get(id(cursor))
+        return False
+
+    def in_generator_body(self, node, scope):
+        cursor = node
+        while cursor and self.ast_scopes.get(id(cursor)) != scope['id']:
+            if isinstance(cursor, ast.GeneratorExp):
+                first_iter = cursor.generators[0].iter if cursor.generators else None
+                ancestor = node
+                while ancestor and ancestor is not cursor and ancestor is not first_iter:
+                    ancestor = self.parents.get(id(ancestor))
+                if ancestor is not first_iter:
+                    return True
+            cursor = self.parents.get(id(cursor))
+        return False
+
+    @staticmethod
+    def root_name(node):
+        while isinstance(node, (ast.Attribute, ast.Call)):
+            node = node.value if isinstance(node, ast.Attribute) else node.func
+        return node.id if isinstance(node, ast.Name) else None
+
+    def resolve(self, func, scope):
+        name = text(func)
+        root = self.root_name(func)
+        if root and self.comprehension_binds(func, root, scope):
+            return [], 'unknown', 'comprehension-local binding; inspect its iterable'
+        if scope['kind'] == 'class' and self.in_comprehension_body(func, scope):
+            # Comprehension bodies run in an implicit function scope, where the
+            # surrounding class suite is not available as a lexical namespace.
+            scope = self.scopes[scope['parent']]
+        if isinstance(func, ast.Lambda):
+            return [self.ast_scopes[id(func)]], 'supported', 'literal lambda'
+        if isinstance(func, ast.Name):
+            targets, reason = self.lexical(scope, func.id)
+            if targets:
+                return self.target_result(targets, 'supported', reason, scope, func.id, func)
+            if reason.startswith('import '):
+                return [], 'external', reason + '; implementation not indexed'
+            if reason.startswith('local binding'):
+                return [], 'unknown', reason + '; inspect its assignment or parameter'
+            builtins = {'str', 'int', 'bool', 'float', 'list', 'dict', 'set', 'tuple', 'len', 'print', 'range', 'enumerate', 'zip', 'sum', 'min', 'max', 'sorted', 'isinstance', 'getattr', 'setattr', 'hasattr', 'open', 'super', 'Exception', 'ValueError', 'TypeError', 'RuntimeError', 'next', 'iter', 'any', 'all', 'repr'}
+            if name in builtins:
+                return [], 'external', 'builtin candidate; runtime rebinding is possible'
+        if isinstance(func, ast.Attribute):
+            receiver = func.value
+            if isinstance(receiver, ast.Name) and receiver.id in ('self', 'cls'):
+                owner = self.enclosing_class(scope)
+                if owner:
+                    targets = self.member_targets(owner['id'], func.attr)
+                    if targets:
+                        return self.callable_member_result(targets, 'possible', 'instance or class member; overrides and runtime dispatch may vary')
+            if (isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Name)
+                    and receiver.func.id == 'super' and self.lexical(scope, 'super') == ([], '')):
+                owner = self.enclosing_class(scope)
+                if owner:
+                    order = self.class_mro(owner['id'])
+                    if order is not None:
+                        targets = next((self.duplicate_definitions[(base_id, func.attr)]
+                                        for base_id in order[1:]
+                                        if (base_id, func.attr) in self.duplicate_definitions), [])
+                    else:
+                        node = self.class_nodes[owner['id']]
+                        origin = self.scopes.get(owner['parent'])
+                        targets = [target for base in node.bases for base_id in self.class_reference(base, origin)
+                                   for target in self.member_targets(base_id, func.attr)]
+                    if targets:
+                        return self.callable_member_result(targets, 'possible', 'super member candidate; MRO and runtime dispatch may vary')
+            # Class attribute access is an explicit, unbound method access unless
+            # a descriptor such as classmethod establishes a bound receiver.
+            class_ids = self.class_reference(receiver, scope)
+            if class_ids:
+                targets = [target for class_id in class_ids for target in self.member_targets(class_id, func.attr)]
+                if targets:
+                    return self.callable_member_result(targets, 'supported', 'member of source class', scope,
+                                                       receiver.id if isinstance(receiver, ast.Name) else None, func)
+            inferred = self.inferred_instance_candidates(receiver, scope)
+            if inferred:
+                members = []
+                external = []
+                for candidate in inferred:
+                    class_name, origin_id, evidence = candidate[:3]
+                    origin = self.scopes[origin_id]
+                    class_targets = [origin_id] if origin['kind'] == 'class' and origin['name'] == class_name else self.class_reference_text(class_name, origin)
+                    members.extend(target for class_id in class_targets for target in self.member_targets(class_id, func.attr))
+                    if not class_targets:
+                        imported = self.imported_name(origin, class_name)
+                        if imported != class_name:
+                            external.append(imported + '.' + func.attr)
+                if members:
+                    return self.callable_member_result(members, 'possible', 'inferred receiver ' + text(receiver) + '; runtime dispatch can vary')
+                if external:
+                    return [], 'external', 'receiver type candidate outside index: ' + ', '.join(external)
+            path = self.imported_path(scope, func)
+            if path:
+                targets = self.symbols.get(path, [])
+                if targets:
+                    root = name.split('.')[0]
+                    return self.target_result(targets, 'supported', 'import ' + path, scope, root, func)
+                return [], 'external', 'import ' + path + '; implementation not indexed'
+            if isinstance(receiver, ast.Attribute) and isinstance(receiver.value, ast.Name) and receiver.value.id in ('self', 'cls'):
+                return [], 'unknown', 'instance attribute ' + text(receiver) + ' has no source-backed type candidate; inspect its initializer'
+            if isinstance(receiver, ast.Call):
+                return [], 'unknown', 'call result has no source-backed class candidate; inspect the constructor or factory'
         return [], 'unknown', 'dynamic receiver, callback, alias, or target not resolved by this analyzer'
 
-    def binding(self, call, target):
-        if target['kind'] == 'class':
+    def binding(self, call, target, scope):
+        """Map arguments from Python call syntax without inventing a receiver."""
+        constructor = target['kind'] == 'class'
+        if constructor:
             initializer = target['symbols'].get('__init__')
             if initializer:
                 target = self.scopes[initializer]
-        params = target['params']
+        params = list(target['params'])
         rows = []
-        if (isinstance(call.func, ast.Attribute) or target['kind'] == 'method') and params and params[0]['name'] in ('self', 'cls'):
-            rows.append({'argument': text(call.func.value) if isinstance(call.func, ast.Attribute) else 'new instance (implicit)', 'parameter': params[0]['name'], 'certainty': 'possible receiver'})
+        receiver = None
+        receiver_certainty = 'possible receiver'
+        if constructor and params:
+            receiver = 'new instance (implicit)'
+        elif target['kind'] == 'method' and isinstance(call.func, ast.Attribute) and params:
+            owner = self.scopes.get(target['parent'])
+            base = call.func.value
+            decorators = {decorator.split('(')[0].split('.')[-1] for decorator in target['decorators']}
+            if 'staticmethod' not in decorators:
+                if 'classmethod' in decorators:
+                    if isinstance(base, ast.Name) and base.id == 'cls':
+                        receiver = 'cls (implicit)'
+                    elif self.class_reference(base, scope):
+                        receiver = text(base) + ' (implicit class)'
+                    elif isinstance(base, ast.Call) and isinstance(base.func, ast.Name) and base.func.id == 'super':
+                        receiver = 'class selected by super() (implicit)'
+                    else:
+                        receiver = 'type(' + text(base) + ') (implicit)'
+                elif isinstance(base, ast.Name) and base.id in ('self', 'cls'):
+                    receiver = text(base)
+                elif isinstance(base, ast.Call) and self.class_reference(base.func, scope):
+                    receiver = text(base)
+                elif isinstance(base, ast.Call) and isinstance(base.func, ast.Name) and base.func.id == 'super':
+                    receiver = text(base)
+                elif not self.class_reference(base, scope) and self.inferred_instance_candidates(base, scope):
+                    receiver = text(base)
+            if receiver is not None and owner and params[0]['name'] not in ('self', 'cls'):
+                # A source-defined method may have any first parameter name.
+                receiver_certainty = 'possible receiver'
+        if receiver is not None and params:
+            rows.append({'argument': receiver, 'parameter': params[0]['name'], 'certainty': receiver_certainty})
             params = params[1:]
-        positional = [p for p in params if p['kind'] in ('positional', 'posonly')]
+
+        positional = [param for param in params if param['kind'] in ('positional', 'posonly')]
+        varargs = next((param for param in params if param['kind'] == 'varargs'), None)
+        kwargs = next((param for param in params if param['kind'] == 'kwargs'), None)
         consumed = set()
         uncertain = False
-        for i, arg in enumerate(call.args):
+        position = 0
+        for arg in call.args:
             if isinstance(arg, ast.Starred):
                 uncertain = True
-            dest = positional[i]['name'] if i < len(positional) and not uncertain else '*arguments (binding unresolved)'
-            consumed.add(dest)
-            rows.append({'argument': text(arg), 'parameter': dest, 'certainty': 'possible' if uncertain else 'syntax'})
-        for kw in call.keywords:
-            dest = kw.arg or '**keywords (binding unresolved)'
-            consumed.add(dest)
-            rows.append({'argument': text(kw.value), 'parameter': dest, 'certainty': 'syntax' if kw.arg else 'possible'})
+                rows.append({'argument': text(arg), 'parameter': '*arguments (binding unresolved)', 'certainty': 'possible'})
+                continue
+            if uncertain:
+                dest, certainty = '*arguments (binding unresolved)', 'possible'
+            elif position < len(positional):
+                dest, certainty = positional[position]['name'], 'syntax'
+                consumed.add(dest)
+            elif varargs:
+                dest, certainty = varargs['name'], 'syntax'
+            else:
+                dest, certainty = '*arguments (no declared positional parameter)', 'unresolved'
+            rows.append({'argument': text(arg), 'parameter': dest, 'certainty': certainty})
+            position += 1
+        for keyword in call.keywords:
+            if keyword.arg is None:
+                uncertain = True
+                rows.append({'argument': '**' + text(keyword.value), 'parameter': '**keywords (binding unresolved)', 'certainty': 'possible'})
+                continue
+            param = next((candidate for candidate in params if candidate['name'] == keyword.arg), None)
+            if param and param['kind'] not in ('posonly', 'varargs'):
+                dest, certainty = param['name'], 'syntax'
+                consumed.add(dest)
+            elif kwargs:
+                dest, certainty = kwargs['name'] + '[' + keyword.arg + ']', 'syntax'
+            else:
+                dest, certainty = keyword.arg + ' (no declared keyword parameter)', 'unresolved'
+            rows.append({'argument': text(keyword.value), 'parameter': dest, 'certainty': certainty})
         for param in params:
             if param['name'] not in consumed and param.get('default') is not None:
-                rows.append({'argument': param['default'], 'parameter': param['name'], 'certainty': 'default unless unpacking supplies it'})
-        return rows
+                rows.append({'argument': param['default'], 'parameter': param['name'],
+                             'certainty': 'default possible' if uncertain else 'default'})
+        if constructor:
+            mode = 'construction'
+        elif target['kind'] == 'method':
+            mode = 'implicit' if receiver is not None else 'explicit'
+        else:
+            mode = 'not-applicable'
+        receiver_binding = {
+            'mode': mode,
+            'expression': receiver,
+            'certainty': 'possible' if mode in ('construction', 'implicit')
+            else 'syntax' if mode == 'explicit' else 'not-applicable',
+        }
+        return rows, receiver_binding
 
     def return_destination(self, call):
         node = self.parents.get(id(call))
@@ -429,6 +974,79 @@ class Analyzer:
         if isinstance(node, ast.Expr):
             return 'value discarded; caller continues'
         return 'enclosing expression: ' + short(text(node), 90) if node else 'enclosing scope'
+
+    def expression_guards(self, node, scope):
+        guards = []
+        child = node
+        parent = self.parents.get(id(child))
+        while parent and self.ast_scopes.get(id(parent)) != scope['id']:
+            if isinstance(parent, ast.IfExp):
+                if child is parent.body or child is parent.orelse:
+                    guards.append({'kind': 'if-expression', 'condition': text(parent.test),
+                                   'branch': 'true' if child is parent.body else 'false',
+                                   'span': self.span(parent.test, scope['file'])})
+            elif isinstance(parent, ast.BoolOp) and child in parent.values:
+                index = parent.values.index(child)
+                if index:
+                    condition = ' and '.join(text(value) for value in parent.values[:index]) if isinstance(parent.op, ast.And) else ' or '.join(text(value) for value in parent.values[:index])
+                    guards.append({'kind': 'short-circuit', 'condition': condition,
+                                   'requirement': 'all prior operands truthy' if isinstance(parent.op, ast.And) else 'all prior operands falsy',
+                                   'span': self.span(parent, scope['file'])})
+            elif isinstance(parent, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                first_iter = parent.generators[0].iter if parent.generators else None
+                ancestor = node
+                in_first_iter = False
+                while ancestor and ancestor is not parent:
+                    if ancestor is first_iter:
+                        in_first_iter = True
+                        break
+                    ancestor = self.parents.get(id(ancestor))
+                if not in_first_iter:
+                    guards.append({'kind': 'comprehension', 'condition': text(parent),
+                                   'requirement': 'iteration and applicable filters reach this expression',
+                                   'span': self.span(parent, scope['file'])})
+            child = parent
+            parent = self.parents.get(id(child))
+        return guards
+
+    def execution_context(self, node, scope):
+        if any(isinstance(ancestor, ast.TypeAlias) for ancestor in self.ancestors(node, scope)):
+            return {'kind': 'type alias value', 'deferred': True}
+        if scope['async']:
+            return {'kind': 'coroutine body', 'deferred': True}
+        if scope['generator']:
+            return {'kind': 'generator body', 'deferred': True}
+        if self.in_generator_body(node, scope):
+            return {'kind': 'generator expression', 'deferred': True}
+        if scope['kind'] == 'class':
+            return {'kind': 'class definition', 'deferred': False}
+        if scope['kind'] == 'module':
+            return {'kind': 'module execution', 'deferred': False}
+        return {'kind': 'function body', 'deferred': False}
+
+    @staticmethod
+    def reason_code(status, reason):
+        if 'descriptor getter is accessed before this call' in reason:
+            return 'descriptor_result'
+        if 'may not be bound before this call' in reason or 'multiple local definitions and imports' in reason:
+            return 'binding_not_established'
+        if 'comprehension-local binding' in reason:
+            return 'comprehension_binding'
+        if 'local binding shadows' in reason:
+            return 'local_binding'
+        if 'instance attribute' in reason and 'no source-backed' in reason:
+            return 'untyped_instance_attribute'
+        if 'call result has no' in reason:
+            return 'untyped_call_result'
+        if 'inferred receiver' in reason:
+            return 'inferred_receiver'
+        if 'instance or class member' in reason or 'super member' in reason:
+            return 'dynamic_method_dispatch'
+        if status == 'external':
+            return 'external_source'
+        if status == 'unknown':
+            return 'unresolved_target'
+        return 'source_definition'
 
     def expression_info(self, roots, scope):
         calls, decisions, reads, writes = [], [], [], []
@@ -457,12 +1075,22 @@ class Analyzer:
                 visit(child)
             if isinstance(node, ast.Call):
                 targets, status, reason = self.resolve(node.func, scope)
+                guards = self.expression_guards(node, scope)
+                bindings = {}
+                receiver_bindings = {}
+                for target_id in targets:
+                    bindings[target_id], receiver_bindings[target_id] = self.binding(
+                        node, self.scopes[target_id], scope)
                 call = {'id': self.ident(node, file), 'scope': scope['id'], 'name': text(node.func), 'expression': short(text(node), 180),
                         'span': self.span(node, file), 'targets': targets, 'status': status, 'reason': reason,
+                        'reasonCode': self.reason_code(status, reason),
                         'arguments': [text(arg) for arg in node.args] + [(kw.arg + '=' if kw.arg else '**') + text(kw.value) for kw in node.keywords],
-                        'bindings': {t: self.binding(node, self.scopes[t]) for t in targets}, 'destination': self.return_destination(node),
-                        'conditional': any(isinstance(a, (ast.BoolOp, ast.IfExp, ast.comprehension, ast.GeneratorExp)) for a in self.ancestors(node, scope)),
-                        'awaited': isinstance(self.parents.get(id(node)), ast.Await)}
+                        'bindings': bindings, 'receiverBindings': receiver_bindings,
+                        'candidateEvidence': self.receiver_evidence(node.func, scope, targets),
+                        'destination': self.return_destination(node),
+                        'conditional': bool(guards),
+                        'awaited': isinstance(self.parents.get(id(node)), ast.Await),
+                        'guards': guards, 'executionContext': self.execution_context(node, scope), 'unreachable': False}
                 call['execution'] = 'ordinary call'
                 if call['awaited']:
                     call['execution'] = 'await: suspension and resumption; exceptions can propagate'
@@ -473,6 +1101,8 @@ class Analyzer:
                 function_path = self.imported_name(scope, text(node.func))
                 if function_path in ('asyncio.create_task', 'asyncio.ensure_future', 'asyncio.gather'):
                     call['execution'] = 'background scheduling boundary: work may interleave; delivery/completion is not established here'
+                if call['executionContext']['kind'] == 'type alias value':
+                    call['execution'] = 'deferred type alias: value is evaluated when requested'
                 calls.append(call)
                 self.calls.append(call)
         for root in roots:
@@ -492,6 +1122,10 @@ class Analyzer:
             item = self.statement(node, scope)
             if terminal:
                 item['unreachable'] = True
+                for nested in self.walk_flow([item]):
+                    nested['unreachable'] = True
+                    for call in nested['calls']:
+                        call['unreachable'] = True
             result.append(item)
             if isinstance(node, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
                 terminal = True
@@ -597,7 +1231,10 @@ class Analyzer:
         item['calls'], item['decisions'], item['reads'], item['writes'] = self.expression_info(roots, scope)
         for call in item['calls']:
             name = call['name'].lower()
-            if any(k in name for k in ('commit', 'flush', 'execute', '.add', '.delete', '.write', '.send', 'publish', '.put', '.start', 'create_task', 'subprocess', 'logger.', 'logging.', 'print', 'open')):
+            member = name.rsplit('.', 1)[-1]
+            effect_members = {'commit', 'flush', 'execute', 'add', 'delete', 'write', 'send', 'publish',
+                              'put', 'start', 'create_task', 'print', 'open'}
+            if member in effect_members or name.startswith(('logger.', 'logging.', 'subprocess.')):
                 item['effects'].append('possible effect: ' + call['name'])
         return item
 
@@ -644,7 +1281,7 @@ class Analyzer:
         callers_by_target = defaultdict(dict)
         for call in self.calls:
             calls_by_scope[call['scope']].append(call)
-            for target in call['targets'] if call['status'] == 'supported' else []:
+            for target in call['targets'] if call['status'] == 'supported' and not call['unreachable'] else []:
                 callers_by_target[target][call['scope']] = None
         for scope in self.scopes.values():
             if time.monotonic() - self.started > MAX_ANALYSIS_SECONDS:
@@ -654,9 +1291,25 @@ class Analyzer:
             scope['callers'] = list(callers_by_target[scope['id']])
             scope.pop('symbols')
             scope.pop('imports')
-        return {'analysisOptions': {'sourceRoots': [str(path.relative_to(self.root)) for path in self.source_roots], 'exclude': sorted(self.user_excluded)}, 'configuration': self.configuration, 'project': self.root.name, 'root': str(self.root), 'files': {f: {'source': i['source'], 'hash': i['hash'], 'lines': i['lines']} for f, i in self.files.items()},
+        router_prefixes = {}
+        for file, info in self.files.items():
+            for node in info['tree'].body:
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)) or not isinstance(node.value, ast.Call):
+                    continue
+                if text(node.value.func).split('.')[-1] not in ('APIRouter', 'Blueprint'):
+                    continue
+                prefix = next((keyword.value.value for keyword in node.value.keywords
+                               if keyword.arg in ('prefix', 'url_prefix')
+                               and isinstance(keyword.value, ast.Constant)
+                               and isinstance(keyword.value.value, str)), '')
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        router_prefixes[file + ':' + target.id] = prefix
+        return {'analysisOptions': {'sourceRoots': [str(path.relative_to(self.root)) for path in self.source_roots], 'exclude': sorted(self.user_excluded)}, 'configuration': self.configuration, 'configurationManifest': self.configuration_manifest, 'project': self.root.name, 'root': str(self.root), 'files': {f: {'source': i['source'], 'hash': i['hash'], 'lines': i['lines']} for f, i in self.files.items()},
                 'scopes': self.scopes, 'errors': self.errors, 'excluded': self.excluded,
-                'coverage': {'files': len(self.files), 'discovered': len(self.files) + len(self.errors), 'kinds': dict(kinds), 'definitions': sum(v for k, v in kinds.items() if k not in ('module', 'class')), 'statements': statement_total, 'representedStatements': modeled_statements, 'calls': len(all_calls), 'representedCalls': len(represented_calls), 'statuses': dict(statuses), 'unmodeledCalls': unmodeled_calls, 'constructs': dict(self.construct_counts)},
+                'discoveryManifest': self.discovery_manifest, 'routerPrefixes': router_prefixes,
+                'coverage': {'files': len(self.files), 'discovered': len(self.discovery_manifest), 'kinds': dict(kinds), 'definitions': sum(v for k, v in kinds.items() if k not in ('module', 'class')), 'statements': statement_total, 'representedStatements': modeled_statements, 'calls': len(all_calls), 'representedCalls': len(represented_calls), 'statuses': dict(statuses), 'unmodeledCalls': unmodeled_calls, 'constructs': dict(self.construct_counts)},
                 'limits': ['Source structure is exhaustive within parsed files; runtime paths and effects are not proven.', 'Dynamic dispatch, aliases, descriptors, decorators, callbacks, and implicit protocol calls may remain unresolved.', 'Data highlights show lexical definitions and uses; alias propagation and path feasibility are not proven.', 'Annotations are shown as source; evaluation depends on Python version and future imports.']}
 
     @staticmethod
@@ -671,7 +1324,6 @@ def analyze(root, *, source_roots=None, exclude=None):
     from .workflows import build_workflows
     model = Analyzer(root, source_roots=source_roots, exclude=exclude).run()
     model["workflows"] = build_workflows(model)
-    from .workflows import generic_workflow, suggested_entrypoints
+    from .workflows import suggested_entrypoints
     model["entrypoints"] = suggested_entrypoints(model)
-    model["generatedWorkflows"] = {scope["id"]: generic_workflow(model, scope["id"]) for scope in model["entrypoints"][:1]}
     return model

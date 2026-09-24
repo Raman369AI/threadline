@@ -41,13 +41,22 @@ Compare a working tree with a Git baseline:
 threadline review /path/to/your/python-project --base HEAD
 ```
 
-Open **Changes** to select a changed method or compare its before/after source. Current callers, historical callers, and possible impact are shown separately.
+Open **Changes** to select a changed method or compare its before/after source. Changed
+files, rename-only records, and edits outside methods remain visible when no callable
+body changes. Current callers, historical callers, and possible impact are shown
+separately. These are direct source relationships, not a complete impact analysis.
 
-For source roots, exclusions, and JSON output, see the [usage guide](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md).
+For source roots, exclusions, snapshot-pinned JSON queries, and evidence retrieval, see
+the [usage guide](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md).
 
 ## Understand the limits
 
-Threadline uses static analysis. Calls are labeled **supported**, **possible**, **external**, or **unknown** according to the source evidence. Dynamic dispatch can remain unresolved; the view does not establish what happened at runtime. Open **Coverage** to inspect parse failures and unmodeled syntax.
+Threadline uses static analysis. Calls are labeled **supported**, **possible**,
+**external**, or **unknown** according to the source evidence. Common injected,
+inherited, and constructed receivers can have possible source candidates. Dynamic
+dispatch can remain unresolved; the view does not establish what happened at runtime.
+The header shows analysis problems, and **Coverage** lists parse failures and unmodeled
+syntax.
 
 This is a **beta**. Linux and macOS are tested with Python 3.12–3.14; Windows is experimental. Human reviewer sessions remain pending before a stable release.
 

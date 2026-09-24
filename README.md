@@ -1,10 +1,13 @@
 # Threadline
 
-**Explore Python workflows, from an endpoint or method to the original source.**
+**Follow data through Python methods, with source and model definitions beside it.**
 
 [Get started](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md) · [Documentation](https://github.com/Raman369AI/threadline/blob/main/docs/README.md) · [GitHub](https://github.com/Raman369AI/threadline) · [Report a bug](https://github.com/Raman369AI/threadline/issues)
 
-Threadline opens your Python repository in a local browser. Choose an endpoint, command, or module and method to follow its calls across files. See branches, inputs, return values, and the code behind each step together.
+Threadline opens your Python repository in a local browser. Choose an endpoint,
+command, or method to see what data enters it, what it creates or changes, and
+where values are used or returned. Follow calls across methods while keeping
+the original code and model declarations close by.
 
 It reads source without importing or running the project being reviewed. That project's dependencies do not need to be installed.
 
@@ -27,11 +30,16 @@ Your browser opens the review automatically. If it does not, open the local addr
 | **Commands & tasks** | Select a CLI command or background task. |
 | **Modules & methods** | Pick a module, filter its methods, then select one. |
 
-Search is available across all three pages. Selecting a method opens its workflow and original source; nothing is selected automatically.
+Search is available across all three pages. Selecting a method opens its Data
+flow beside its Data models; nothing is selected automatically. Switch to Steps
+for the line-by-line explanation or expand Code to read only the selected
+method. The code pane can also sit beside the analysis at an adjustable width.
+Related tests expand below the code. Selecting a caller compares both methods'
+code and flow side by side, with Back returning to your previous view.
 
-![Threadline showing a cross-file order workflow, method steps, and original Python source side by side.](https://raw.githubusercontent.com/Raman369AI/threadline/main/docs/images/workflow-review.png)
-
-Follow calls in the workflow, expand a branch for its local logic, or select a step to highlight its source. Calls into other modules retain their source evidence. Large workflows and branch bodies load progressively.
+Each data link points to source evidence. Unresolved sources and effects remain
+visible as gaps rather than invented values. The [usage guide](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md)
+explains model references, navigation, and the limits of static data flow.
 
 ## Review a change
 

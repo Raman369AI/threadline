@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import re
 import subprocess
 import tempfile
 import time
-from pathlib import Path
+import tokenize
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .service import SnapshotStore, ThreadlineError, add_evidence_ids
 from .analyzer import EXCLUDED, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES
+from .templates import (MAX_TEMPLATE_ASSETS, MAX_TEMPLATE_FILE_BYTES,
+                        MAX_TEMPLATE_TOTAL_BYTES, TEMPLATE_SUFFIXES,
+                        literal_template_names)
 
 HUNK = re.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@')
 
@@ -30,22 +35,68 @@ def review_changes(root: str | Path, base: str = 'HEAD', files: list[str] | None
     with tempfile.TemporaryDirectory(prefix='threadline-base-') as directory:
         base_root = Path(directory).resolve()
         total_bytes = count = 0
-        for name in (item for item in _git_z(root, ['ls-tree', '-r', '-z', '--name-only', base_revision]) if item.endswith('.py') or item == 'pyproject.toml'):
+        entries = []
+        for record in _git_z(root, ['ls-tree', '-r', '-z', base_revision]):
+            metadata, separator, name = record.partition('\t')
+            fields = metadata.split()
+            if not separator or len(fields) != 3:
+                raise ThreadlineError('Git baseline tree entry is malformed')
+            entries.append((name, fields[0]))
+
+        def materialize(name, size_limit):
+            nonlocal total_bytes, count
             target = base_root / name
             if target.is_absolute() and base_root not in target.resolve().parents:
                 raise ThreadlineError('Git tree path escapes the baseline root')
-            if name != 'pyproject.toml' and any(name == prefix or name.startswith(prefix + '/') for prefix in exclusions):
-                continue
-            if any(part in EXCLUDED for part in Path(name).parts): continue
-            if name != 'pyproject.toml' and not any(prefix == '.' or name.startswith(prefix + '/') for prefix in source_roots): continue
             count += 1
             if time.monotonic() - started > 60: raise ThreadlineError('Baseline materialization exceeded 60 second budget')
             if count > MAX_FILES: raise ThreadlineError('Baseline file budget exceeded')
             size = int(_git(root, ['cat-file', '-s', f'{base_revision}:{name}']))
             total_bytes += size
-            if size > MAX_FILE_BYTES or total_bytes > MAX_TOTAL_BYTES: raise ThreadlineError('Baseline byte budget exceeded')
+            if size > size_limit or total_bytes > MAX_TOTAL_BYTES: raise ThreadlineError('Baseline byte budget exceeded')
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(_git_bytes(root, ['cat-file', 'blob', f'{base_revision}:{name}']))
+            raw = _git_bytes(root, ['cat-file', 'blob', f'{base_revision}:{name}'])
+            target.write_bytes(raw)
+            return raw
+
+        sources = {}
+        for name, mode in entries:
+            if mode not in ('100644', '100755') or not (name.endswith('.py') or name == 'pyproject.toml'):
+                continue
+            if name != 'pyproject.toml' and any(name == prefix or name.startswith(prefix + '/') for prefix in exclusions):
+                continue
+            if any(part in EXCLUDED for part in Path(name).parts): continue
+            if name != 'pyproject.toml' and not any(prefix == '.' or name.startswith(prefix + '/') for prefix in source_roots): continue
+            raw = materialize(name, MAX_FILE_BYTES)
+            if name.endswith('.py') and b'TemplateResponse' in raw:
+                try:
+                    encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
+                    sources[name] = raw.decode(encoding)
+                except (SyntaxError, UnicodeError, LookupError):
+                    pass
+
+        template_names = literal_template_names(sources)
+        template_parts = [PurePosixPath(name.replace('\\', '/')).parts
+                          for name in template_names]
+        template_count = template_bytes = 0
+        for name, mode in entries:
+            if mode not in ('100644', '100755') or not name.lower().endswith(TEMPLATE_SUFFIXES):
+                continue  # Git symlinks and submodules are never materialized as source.
+            parts = PurePosixPath(name).parts
+            if not any(parts[-len(wanted):] == wanted for wanted in template_parts):
+                continue
+            if any(name == prefix or name.startswith(prefix + '/') for prefix in exclusions):
+                continue
+            if any(part in EXCLUDED for part in Path(name).parts):
+                continue
+            template_count += 1
+            if template_count > MAX_TEMPLATE_ASSETS:
+                raise ThreadlineError('Baseline template asset budget exceeded')
+            size = int(_git(root, ['cat-file', '-s', f'{base_revision}:{name}']))
+            template_bytes += size
+            if template_bytes > MAX_TEMPLATE_TOTAL_BYTES:
+                raise ThreadlineError('Baseline template byte budget exceeded')
+            materialize(name, MAX_TEMPLATE_FILE_BYTES)
         for value in source_roots:
             path = (base_root / value).resolve()
             if path != base_root and base_root not in path.parents: raise ThreadlineError('Invalid baseline source root')
@@ -66,6 +117,10 @@ def review_changes(root: str | Path, base: str = 'HEAD', files: list[str] | None
         old_path = row.get('oldPath', path)
         old_lines = hunks.get(path, {}).get('old', [])
         if path == 'pyproject.toml':
+            unassessed.extend(_unassessed_changes(current, path, new_lines, row['status'], 'working'))
+            unassessed.extend(_unassessed_changes(before, old_path, old_lines, row['status'], 'base'))
+            continue
+        if path.lower().endswith(TEMPLATE_SUFFIXES):
             unassessed.extend(_unassessed_changes(current, path, new_lines, row['status'], 'working'))
             unassessed.extend(_unassessed_changes(before, old_path, old_lines, row['status'], 'base'))
             continue
@@ -158,7 +213,8 @@ def _git_z(root, args):
     return [item for item in raw.split('\0') if item]
 
 def _statuses(root, base):
-    values = _git_z(root, ['diff', '--no-ext-diff', '--no-textconv', '--name-status', '-z', '--find-renames', base, '--', '*.py', 'pyproject.toml'])
+    pathspecs = ['*.py', 'pyproject.toml', *(f'*{suffix}' for suffix in TEMPLATE_SUFFIXES)]
+    values = _git_z(root, ['diff', '--no-ext-diff', '--no-textconv', '--name-status', '-z', '--find-renames', base, '--', *pathspecs])
     rows = []
     index = 0
     while index < len(values):
@@ -173,7 +229,7 @@ def _statuses(root, base):
             index += 1
             rows.append({'status': status[0], 'path': path})
     tracked = {row['path'] for row in rows}
-    for path in _git_z(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', '*.py', 'pyproject.toml']):
+    for path in _git_z(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', *pathspecs]):
         if path not in tracked:
             rows.append({'status': 'A', 'path': path, 'untracked': True})
     return rows
@@ -210,6 +266,20 @@ def _snapshot_statuses(before, current, hints):
         if 'pyproject.toml' in untracked:
             row['untracked'] = True
         rows.append(row)
+    old_templates = {name: info for name, info in before.get('templateManifest', {}).items()
+                     if not name.startswith('@')}
+    new_templates = {name: info for name, info in current.get('templateManifest', {}).items()
+                     if not name.startswith('@')}
+    for hint in hints:
+        path = hint['path']
+        old_path = hint.get('oldPath', path)
+        if not path.lower().endswith(TEMPLATE_SUFFIXES) and not old_path.lower().endswith(TEMPLATE_SUFFIXES):
+            continue
+        if old_path not in old_templates and path not in new_templates:
+            continue  # An unreferenced asset is outside this source review.
+        if (hint['status'] == 'R' and old_path != path
+                or old_templates.get(old_path) != new_templates.get(path)):
+            rows.append(hint)
     return rows
 
 
@@ -227,6 +297,9 @@ def _hunks(before, current, statuses):
             if row['path'] == 'pyproject.toml':
                 old = _configuration_info(before)
                 new = _configuration_info(current)
+            elif row['path'].lower().endswith(TEMPLATE_SUFFIXES):
+                old = before.get('templateAssets', {}).get(row.get('oldPath', row['path']))
+                new = current.get('templateAssets', {}).get(row['path'])
             else:
                 old = before['files'].get(row.get('oldPath', row['path']))
                 new = current['files'].get(row['path'])
@@ -258,7 +331,10 @@ def _affected(model, file, ranges, status, *, reason='changed source overlaps de
 
 def _unassessed_changes(model, file, ranges, status, side):
     """Expose source edits that callable-overlap analysis cannot account for."""
-    info = _configuration_info(model) if file == 'pyproject.toml' else model['files'].get(file)
+    is_template = file.lower().endswith(TEMPLATE_SUFFIXES)
+    info = (_configuration_info(model) if file == 'pyproject.toml' else
+            model.get('templateAssets', {}).get(file) if is_template else
+            model['files'].get(file))
     if info is None:
         if file == 'pyproject.toml':
             manifest = model.get('configurationManifest', {})
@@ -267,6 +343,13 @@ def _unassessed_changes(model, file, ranges, status, side):
             return [{'file': file, 'side': side, 'status': status,
                      'reason': 'Project configuration could not be read; impact is unassessed',
                      'analysisError': manifest.get('error', 'configuration source unavailable')}]
+        if is_template:
+            manifest = model.get('templateManifest', {}).get(file)
+            if manifest is None:
+                return []
+            return [{'file': file, 'side': side, 'status': status,
+                     'reason': 'Referenced template could not be read; impact is unassessed',
+                     'analysisError': manifest.get('reason', 'template source unavailable')}]
         error = next((item for item in model['errors'] if item['file'] == file), None)
         if error is None:
             return []
@@ -276,13 +359,17 @@ def _unassessed_changes(model, file, ranges, status, side):
     line_count = info['lines']
     if line_count == 0:
         return ([{'file': file, 'side': side, 'status': status,
-                  'reason': 'Project configuration file changed; callable impact is unassessed'}]
-                if file == 'pyproject.toml' else [])
+                  'reason': ('Referenced template changed; callable impact is unassessed'
+                             if is_template else
+                             'Project configuration file changed; callable impact is unassessed')}]
+                if file == 'pyproject.toml' or is_template else [])
     selected = [(1, line_count)] if status in ('A', 'D') else ranges
     if not selected:
         return ([{'file': file, 'side': side, 'status': status,
-                  'reason': 'Project configuration bytes changed; callable impact is unassessed'}]
-                if file == 'pyproject.toml' else [])
+                  'reason': ('Referenced template bytes changed; callable impact is unassessed'
+                             if is_template else
+                             'Project configuration bytes changed; callable impact is unassessed')}]
+                if file == 'pyproject.toml' or is_template else [])
     callable_spans = sorted((scope['span']['start'], scope['span']['end'])
                             for scope in model['scopes'].values()
                             if scope['file'] == file and scope['kind'] not in ('module', 'class'))
@@ -306,7 +393,9 @@ def _unassessed_changes(model, file, ranges, status, side):
             span = {'file': file, 'start': first, 'end': last, 'hash': info['hash']}
             rows.append(add_evidence_ids({'file': file, 'side': side, 'status': status,
                                           'span': span, 'reason':
-                                          'Changed source outside callable definitions; impact is unassessed'}))
+                                          ('Changed referenced template source; impact is unassessed'
+                                           if is_template else
+                                           'Changed source outside callable definitions; impact is unassessed')}))
     return rows
 
 

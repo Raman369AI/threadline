@@ -2,6 +2,19 @@
 
 [Documentation home](README.md) · [Project home](../README.md)
 
+## Current local candidate — 2026-09-24
+
+Chrome 153 on Linux passed 62 keyboard, pointer, reflow, zoom, and accessibility
+checks with zero axe violations across 24 audited states. The candidate checks
+include the default Data flow and Data models view, Steps, full-width Code,
+pointer and keyboard code resizing, sidebar collapse, No-distraction mode,
+related source controls, exact change evidence, 720- and 390-pixel widths, and 200% zoom. These are
+local results for the current checkout. Native Safari, the cross-platform
+matrix, and human assistive-technology review have not been rerun for this
+candidate.
+
+The earlier CI-backed release evidence follows.
+
 [CI run 34922515651](https://github.com/Raman369AI/threadline/actions/runs/34922515651) passed for application/test commit `8c9d088`.
 Reports and screenshots are retained in the `accessibility-ubuntu-latest` and
 `accessibility-macos-latest` artifacts.

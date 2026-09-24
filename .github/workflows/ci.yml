@@ -38,6 +38,7 @@ jobs:
       - run: node --check threadline/static/workflow.js
       - run: node --check threadline/static/tests.js
       - run: node --check threadline/static/method.js
+      - run: node --check threadline/static/dataflow_ui.js
       - run: python tests/browser_smoke.py
         if: runner.os == 'Linux'
       - run: python tests/browser_smoke.py --changes

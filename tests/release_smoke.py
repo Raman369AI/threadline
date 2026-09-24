@@ -48,7 +48,7 @@ def main():
         result = subprocess.run([str(cli), 'inspect', str(target), '--entrypoint', 'api:handle'],
                                 cwd=root, env=env, check=True, text=True, capture_output=True, timeout=30)
         workflow = json.loads(result.stdout)
-        assert workflow['schemaVersion'] == '1.1', workflow
+        assert workflow['schemaVersion'] == '1.2', workflow
         assert workflow['analysis']['complete'] is True, workflow
         assert len(workflow['result']['stages']['items']) >= 3, workflow
         with (root / 'server.log').open('w+') as log:
@@ -64,7 +64,7 @@ def main():
                     if process.poll() is not None: raise RuntimeError('Packaged server exited before startup')
                     time.sleep(.05)
                 assert url, 'Packaged server did not start: '+(root/'server.log').read_text()
-                for path, expected in [('', b'Threadline'), ('app.js', b'/api/summary'), ('workflow.js', b'loadCallWorkflow'), ('tests.js', b'/api/tests'), ('method.js', b'/api/overview'), ('styles.css', b'body'), ('api/summary', b'snapshotId')]:
+                for path, expected in [('', b'Threadline'), ('app.js', b'/api/summary'), ('workflow.js', b'loadCallWorkflow'), ('tests.js', b'/api/tests'), ('method.js', b'/api/overview'), ('dataflow_ui.js', b'/api/dataflow'), ('styles.css', b'body'), ('api/summary', b'snapshotId')]:
                     with urllib.request.urlopen(url + path, timeout=5) as response:
                         assert response.status == 200
                         assert expected in response.read(), path

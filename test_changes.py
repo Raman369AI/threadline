@@ -353,3 +353,76 @@ class ChangeReviewTests(unittest.TestCase):
         self.assertEqual(comparison['match'], 'ambiguous')
         self.assertIsNone(comparison['counterpartId'])
         self.assertIsNone(comparison['before'])
+
+    def test_git_baseline_retains_only_direct_template_candidate_source(self):
+        (self.root / 'route.py').write_text(
+            'from fastapi.templating import Jinja2Templates\n'
+            'templates = Jinja2Templates(directory="templates")\n'
+            'def show(value):\n'
+            '    return templates.TemplateResponse("page.html", {"items": value})\n')
+        templates = self.root / 'templates'
+        templates.mkdir()
+        page = templates / 'page.html'
+        page.write_text('<p>{{ items }}</p>\n')
+        unused = templates / 'unused.html'
+        unused.write_text('<p>unreferenced</p>\n')
+        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'template base'], cwd=self.root, check=True)
+        page.write_text('<h1>{{ items }}</h1>\n')
+
+        store = SnapshotStore(self.root)
+        changes = review_changes(self.root, store=store)
+        before = store.model(changes['baseSnapshotId'])
+        after = store.current
+        self.assertEqual(before['templateLinks'][0]['status'], 'matched')
+        self.assertEqual(after['templateLinks'][0]['status'], 'matched')
+        self.assertEqual(set(before['templateAssets']), {'templates/page.html'})
+        self.assertEqual([(row['status'], row['path']) for row in changes['files']],
+                         [('M', 'templates/page.html')])
+        self.assertEqual(changes['changedMethods'], [])
+        self.assertEqual({row['side'] for row in changes['unassessedChanges']},
+                         {'working', 'base'})
+        for row in changes['unassessedChanges']:
+            self.assertIn('items', store.get_source(
+                snapshot_id=(after if row['side'] == 'working' else before)['snapshotId'],
+                evidence=row['evidenceId'])['source'])
+        self.assertEqual(store.get_source(snapshot_id=before['snapshotId'],
+                                          file='templates/page.html', start=1, end=1)['source'],
+                         '<p>{{ items }}</p>')
+        self.assertEqual(store.get_source(snapshot_id=after['snapshotId'],
+                                          file='templates/page.html', start=1, end=1)['source'],
+                         '<h1>{{ items }}</h1>')
+        self.assertNotEqual(before['snapshotId'], after['snapshotId'])
+        self.assertNotIn('templates/unused.html', before['templateAssets'])
+
+    def test_referenced_template_addition_and_deletion_are_unassessed(self):
+        (self.root / 'route.py').write_text(
+            'from fastapi.templating import Jinja2Templates\n'
+            'templates = Jinja2Templates(directory="templates")\n'
+            'def show(value):\n'
+            '    return templates.TemplateResponse("page.html", {"items": value})\n')
+        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'template reference'], cwd=self.root, check=True)
+        templates = self.root / 'templates'
+        templates.mkdir()
+        page = templates / 'page.html'
+        page.write_text('{{ items }}\n')
+        added_store = SnapshotStore(self.root)
+        added = review_changes(self.root, store=added_store)
+        self.assertEqual([(row['status'], row['path']) for row in added['files']],
+                         [('A', 'templates/page.html')])
+        self.assertEqual([row['side'] for row in added['unassessedChanges']], ['working'])
+        self.assertEqual(added_store.get_source(
+            evidence=added['unassessedChanges'][0]['evidenceId'])['source'], '{{ items }}')
+
+        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'template added'], cwd=self.root, check=True)
+        page.unlink()
+        deleted_store = SnapshotStore(self.root)
+        deleted = review_changes(self.root, store=deleted_store)
+        self.assertEqual([(row['status'], row['path']) for row in deleted['files']],
+                         [('D', 'templates/page.html')])
+        self.assertEqual([row['side'] for row in deleted['unassessedChanges']], ['base'])
+        self.assertEqual(deleted_store.get_source(
+            snapshot_id=deleted['baseSnapshotId'],
+            evidence=deleted['unassessedChanges'][0]['evidenceId'])['source'], '{{ items }}')

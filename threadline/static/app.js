@@ -41,7 +41,7 @@ function reportError(error, retry, key) {
 }
 function icon(kind) { return ({If:'◇',Match:'◇',Assert:'◇',For:'↻',AsyncFor:'↻',While:'↻',Try:'⑂',TryStar:'⑂',Return:'↩',Raise:'↗',Break:'↗',Continue:'↻',With:'▱',AsyncWith:'▱',FunctionDef:'ƒ',AsyncFunctionDef:'ƒ',ClassDef:'C',Import:'↓',ImportFrom:'↓'})[kind] || '·'; }
 
-let sessionToken = '', navigationRequest = 0, selectionRequest = 0, sourceRequest = 0;
+let sessionToken = '', navigationRequest = 0, selectionRequest = 0, sourceRequest = 0, methodSourceShown = null, methodSourceText = '';
 async function api(path, params={}, options={}) {
   const response = await fetch(path + '?' + new URLSearchParams(params), options);
   const data = await response.json();
@@ -246,6 +246,9 @@ async function chooseScope(id, opts={}) {
   appendScopeFlow($('#flow'), scope, [scope.id], 0);
   $('#flow').append(el('div', 'scope-end', ['module','class'].includes(scope.kind) ? 'End of body.' : (scope.nextCursor!==null?'More steps load above.':'End · returns None if it gets here.')));
   renderPayloads(); navigation(); loadOverview(id);
+  if (typeof prepareRelatedTests === 'function') prepareRelatedTests(id);
+  if (typeof loadDataflow === 'function' && !['module','class'].includes(scope.kind)) loadDataflow(id);
+  else {$('#dataflowOverview').replaceChildren(el('p','source-peek','Select a function or method for data flow.'));$('#dataModelContent').replaceChildren(el('p','source-peek','No selected method data.'));}
   await showSource(scope.span, scope.qualified, '');
   if(request!==selectionRequest || captured!==model)return false;
   $('.review').scrollTop = 0;
@@ -257,7 +260,13 @@ async function chooseScope(id, opts={}) {
 }
 
 async function enterScope(id, call) {
-  const frame = { scope: state.scope, invoker: call.scope || state.scope, scroll: $('.review').scrollTop, dom: [...$('#flow').childNodes], focus: state.focus, destination: call.destination, selectedElement: state.selectedElement };
+  const related=$('#relatedTests');
+  const frame = { scope: state.scope, invoker: call.scope || state.scope, scroll: $('.review').scrollTop,
+    codeScroll:$('#sourceCode').scrollTop, dom: [...$('#flow').childNodes], focus: state.focus,
+    destination: call.destination, selectedElement: state.selectedElement, activeElement:document.activeElement,
+    activeNode:document.activeElement?.dataset?.node,
+    relatedOpen:related.open, relatedNodes:[...$('#relatedTestsContent').childNodes],
+    relatedCount:$('#relatedTestsCount').textContent, relatedLabel:related.firstElementChild.firstChild.textContent };
   state.stack.push(frame);
   await chooseScope(id, {keepStack:true});
 }
@@ -271,9 +280,17 @@ async function returnToCaller() {
   if(!await chooseScope(frame.scope, {keepStack:true}))return;
   state.focus = frame.focus; state.selectedElement = frame.selectedElement;
   $('#flow').replaceChildren(...frame.dom); renderPayloads(); renderPathBar();
+  if(typeof loadDataflow==='function')await loadDataflow(frame.scope);
+  $('#relatedTestsContent').replaceChildren(...frame.relatedNodes);
+  $('#relatedTestsCount').textContent=frame.relatedCount;
+  $('#relatedTests').firstElementChild.firstChild.textContent=frame.relatedLabel;
+  $('#relatedTests').open=frame.relatedOpen;
   $('.review').scrollTop = frame.scroll;
   if (frame.focus) await showSource(frame.focus.span, frame.focus.title, frame.focus.details, false, null, frame.focus.snapshotId);
-  frame.selectedElement?.querySelector('button')?.focus({preventScroll:true});
+  $('#sourceCode').scrollTop=frame.codeScroll;
+  if(frame.activeElement?.isConnected)frame.activeElement.focus({preventScroll:true});
+  else if(frame.activeNode)[...$('#dataflowOverview').querySelectorAll('.dataflow-item')].find(item=>item.dataset.node===frame.activeNode)?.focus({preventScroll:true});
+  else frame.selectedElement?.querySelector('button')?.focus({preventScroll:true});
 }
 
 function renderLazyBranch(branch, scope, ancestry, depth, node) {
@@ -480,39 +497,89 @@ function syntax(line) {
   while((match=regex.exec(line))) { out+=escaped(line.slice(end,match.index)); const token=match[0],type=token.startsWith('#')?'comment':/^["']/.test(token)?'str':/^\d/.test(token)?'num':'key'; out+=`<span class="tok-${type}">${escaped(token)}</span>`; end=match.index+token.length; }
   return out+escaped(line.slice(end));
 }
+function codeLine(number, value, marked=false) {
+  const line=el('div','code-line'+(marked?' focus':''));line.dataset.line=String(number);
+  const content=el('span','line-content');content.innerHTML=syntax(value)||' ';
+  line.append(el('span','line-number',String(number)),content);
+  return line;
+}
+function markCodeRange(host, span, scroll=true) {
+  const lines=host.querySelectorAll('.code-line');
+  for(const line of lines)line.classList.toggle('focus',Boolean(span && Number(line.dataset.line)>=span.start && Number(line.dataset.line)<=span.end));
+  const first=host.querySelector('.code-line.focus');
+  if(first && scroll)host.scrollTop=Math.max(0,first.offsetTop-host.offsetTop-45);
+}
+function methodSourceControls(){
+  const controls=el('div','source-peek source-controls');
+  controls.append(button('Copy method','scope-jump',async()=>{
+    try{await navigator.clipboard.writeText(methodSourceText);announce('Method source copied');}
+    catch{announce('Clipboard unavailable; select and copy the source.');}
+  }));
+  controls.append(button(state.wrap?'Unwrap lines':'Wrap lines','scope-jump',()=>{
+    state.wrap=!state.wrap;$('#sourceCode').classList.toggle('wrap-code',state.wrap);
+    controls.lastElementChild.textContent=state.wrap?'Unwrap lines':'Wrap lines';
+  }));
+  return controls;
+}
 async function showSource(span,title,details='',preserveScroll=false,pageStart=null,snapshotId=null) {
   const request=++sourceRequest, captured=model;
   state.focus={span,title,details,snapshotId};
-  const start=pageStart || (state.sourceWhole?1:Math.max(1,span.start-4));
-  try {
-    const result=await api('/api/source',{snapshot:snapshotId||captured.snapshotId,file:span.file,start});
-    if(request!==sourceRequest || captured!==model) return;
-    clearError('source');
-    $('#sourceFile').textContent=span.file;
-    $('#sourceContext').replaceChildren(el('strong','',title),el('div','',span.start===span.end?`Line ${span.start}`:`Lines ${span.start}–${span.end}`));
-    const lines=result.source.split('\n'), code=$('#sourceCode'), oldScroll=code.scrollTop;
-    code.replaceChildren(); code.classList.toggle('wrap-code',state.wrap);
-    lines.forEach((value,index)=>{
-      const number=start+index;
-      const line=el('div','code-line'+(number>=span.start&&number<=span.end?' focus':''));line.dataset.line=String(number);
-      const content=el('span','line-content');content.innerHTML=syntax(value)||' ';
-      line.append(el('span','line-number',String(number)),content);code.append(line);
-    });
-    code.scrollTop=preserveScroll?oldScroll:0;
-    const host=$('#sourceDetails');host.replaceChildren();
-    for(const line of details.split('\n').filter(Boolean))host.append(el('div','',line));
-    const controls=el('div','source-peek');
-    if(start>1)controls.append(button('Previous source lines','scope-jump',()=>showSource(span,title,details,false,Math.max(1,start-80),snapshotId)));
-    if(result.span.end<result.totalLines) controls.append(button('Next source lines →','scope-jump',()=>showSource(span,title,details,false,result.span.end+1,snapshotId)));
-    controls.append(button('Start of file','scope-jump',()=>showSource(span,title,details,false,1,snapshotId)));
-    const entireSelection=span.start>=start&&span.end<=result.span.end;
-    controls.append(button(entireSelection?'Copy exact selection':'Copy visible source','scope-jump',async()=>{
-      try {await navigator.clipboard.writeText(entireSelection?lines.slice(span.start-start,span.end-start+1).join('\n'):result.source);announce('Source copied');}
-      catch {announce('Clipboard unavailable; select and copy the source.');}
+  const scope=captured?.scopes[state.scope], code=$('#sourceCode'), info=$('#sourceDetails');
+  if(!scope)return;
+  if(['module','class'].includes(scope.kind)){
+    const start=Math.max(scope.span.start,pageStart||scope.span.start),end=Math.min(scope.span.end,start+199);
+    try{
+      const result=await api('/api/source',{snapshot:captured.snapshotId,file:scope.file,start,end});
+      if(request!==sourceRequest||captured!==model)return;
+      code.replaceChildren(...result.source.split('\n').map((value,index)=>codeLine(start+index,value)));
+      $('#sourceFile').textContent=scope.file;$('#sourceContext').textContent=`${scope.qualified} · selected ${scope.kind} source`;
+      info.replaceChildren();
+      if(start>scope.span.start)info.append(button('Previous source lines','scope-jump',()=>showSource(span,title,details,false,Math.max(scope.span.start,start-200))));
+      if(end<scope.span.end)info.append(button('Next source lines','scope-jump',()=>showSource(span,title,details,false,end+1)));
+      $('#snapshotLabel').textContent='Snapshot '+captured.snapshotId.slice(0,8);
+    }catch(error){if(request===sourceRequest&&captured===model)code.replaceChildren(el('p','error',error.message));}
+    return;
+  }
+  const within=(!snapshotId || snapshotId===captured.snapshotId) && span.file===scope.span.file && span.start>=scope.span.start && span.end<=scope.span.end;
+  const focusRange=within && !(span.start===scope.span.start && span.end===scope.span.end)?span:null;
+  info.replaceChildren();
+  if(details)for(const line of details.split('\n').filter(Boolean))info.append(el('div','',line));
+  if(!within){
+    info.prepend(el('p','source-peek',`${title} · ${span.file}:${span.start}${span.end===span.start?'':'–'+span.end}. This evidence is outside the selected method.`));
+    const target=Object.values(captured.scopes).find(item=>item.span?.file===span.file && item.span.start<=span.start && item.span.end>=span.end);
+    if(target && target.id!==scope.id)info.append(button('Go to '+target.qualified+' →','scope-jump',()=>enterScope(target.id,{scope:scope.id,destination:'source evidence'})));
+    else info.append(button('Show exact source here','scope-jump',async()=>{
+      const excerpt=el('div','reference-excerpt');excerpt.textContent='Loading source…';info.append(excerpt);
+      try{const result=await api('/api/source',{snapshot:snapshotId||captured.snapshotId,file:span.file,start:span.start,end:Math.min(span.end,span.start+49)});
+        if(captured!==model || !excerpt.isConnected)return;
+        excerpt.replaceChildren(...result.source.split('\n').map((value,index)=>codeLine(span.start+index,value)));
+      }catch(error){excerpt.textContent=error.message;}
     }));
-    controls.append(button(state.wrap?'Unwrap lines':'Wrap lines','scope-jump',()=>{state.wrap=!state.wrap;showSource(span,title,details,true,start,snapshotId);}));
-    host.append(controls);$('#snapshotLabel').textContent='Snapshot '+(snapshotId||captured.snapshotId).slice(0,8);
-  } catch(error) {if(request===sourceRequest && captured===model){$('#sourceCode').replaceChildren(el('p','error',error.message));reportError(error,()=>showSource(span,title,details,preserveScroll,pageStart,snapshotId),'source');}}
+  }
+  const key=captured.snapshotId+'|'+scope.id;
+  if(methodSourceShown===key && code.childElementCount){
+    markCodeRange(code,focusRange,!preserveScroll && within);
+    info.append(methodSourceControls());
+    return;
+  }
+  methodSourceShown=null;
+  code.replaceChildren(el('p','source-peek','Loading selected method…'));
+  try {
+    let cursor=0, first=true, sourceLines=[];
+    while(cursor!==null){
+      const result=await api('/api/method-source',{symbol:scope.id,snapshot:captured.snapshotId,cursor,limit:100});
+      if(request!==sourceRequest || captured!==model || state.scope!==scope.id)return;
+      if(first){code.replaceChildren();code.classList.toggle('wrap-code',state.wrap);$('#sourceFile').textContent=scope.file;$('#sourceContext').replaceChildren(el('strong','',scope.qualified),el('div','',`Lines ${result.span.start}–${result.span.end} · selected method only`));first=false;}
+      const fragment=document.createDocumentFragment();
+      for(const row of result.lines.items){sourceLines.push(row);fragment.append(codeLine(row.number,row.text));}
+      code.append(fragment);cursor=result.lines.nextCursor;
+    }
+    methodSourceShown=key;clearError('source');
+    markCodeRange(code,focusRange,!preserveScroll && within);
+    if(!preserveScroll && !within)code.scrollTop=0;
+    methodSourceText=sourceLines.map(row=>row.text).join('\n');
+    info.append(methodSourceControls());$('#snapshotLabel').textContent='Snapshot '+captured.snapshotId.slice(0,8);
+  } catch(error) {if(request===sourceRequest && captured===model){methodSourceShown=null;code.replaceChildren(el('p','error',error.message));reportError(error,()=>showSource(span,title,details,preserveScroll,pageStart,snapshotId),'source');}}
 }
 function analysisStatus() {
   const errors=model.diagnostics?.analysisErrors?.total??model.diagnostics?.parseErrors?.total??0;
@@ -604,6 +671,39 @@ function renderChanges() {
     section.open=category==='files' || category==='unassessedChanges' && count>0 || category===(changes.counts.changedMethods?'changedMethods':'previousMethods');
   }
 }
+async function showChangeSource(record,span,snapshotId,label) {
+  const previous=record.querySelector('.change-source-excerpt');
+  if(previous){previous.remove();return;}
+  const excerpt=el('div','change-source-excerpt code-window wrap-code');
+  excerpt.tabIndex=0;
+  excerpt.setAttribute('role','region');
+  excerpt.setAttribute('aria-label','Exact source for '+label);
+  excerpt.textContent='Loading exact source…';
+  record.append(excerpt);
+  const captured=model;
+  try{
+    excerpt.replaceChildren();
+    async function loadPage(start){
+      const page=await api('/api/source',{snapshot:snapshotId,file:span.file,start,end:Math.min(span.end,start+79)});
+      if(captured!==model || !excerpt.isConnected)return;
+      const lines=page.source.split('\n').slice(0,page.span.end-start+1);
+      excerpt.append(...lines.map((line,index)=>codeLine(start+index,line)));
+      const next=page.span.end+1;
+      if(next<=span.end){
+        const more=button('Load more exact source lines','scope-jump',async()=>{
+          more.remove();
+          try{await loadPage(next);}
+          catch(error){if(excerpt.isConnected)excerpt.append(el('p','error','Source unavailable: '+error.message));}
+        });
+        excerpt.append(more);
+      }
+    }
+    await loadPage(span.start);
+    excerpt.focus({preventScroll:true});
+    excerpt.scrollIntoView({block:'nearest'});
+  }catch(error){if(excerpt.isConnected)excerpt.replaceChildren(el('p','error','Source unavailable: '+error.message));}
+}
+
 async function loadDiagnostics(host,category,cursor=0) {
   const captured=model;
   try {
@@ -618,12 +718,14 @@ async function loadDiagnostics(host,category,cursor=0) {
         record.append(el('p','',label));
         const baseline=row.status==='D';
         const file=baseline?(row.oldPath||row.path):row.path;
-        record.append(button(baseline?'Open baseline source':'Open working source','scope-jump',()=>showSource({file,start:1,end:1},label,'Changed file; callable impact is listed separately.',false,null,baseline?model.changes.baseSnapshotId:null)));
+        record.append(button(baseline?'Open baseline source':'Open working source','scope-jump',
+          ()=>showChangeSource(record,{file,start:1,end:1},baseline?model.changes.baseSnapshotId:model.snapshotId,label)));
       } else if(category==='unassessedChanges') {
         const side=row.side==='base'?'Baseline':'Working source';
         const label=side+' · '+row.file+(row.span?':'+row.span.start:'')+' · '+row.reason;
         record.append(el('p','',label));
-        if(row.span) record.append(button('Open exact source','scope-jump',()=>showSource(row.span,label,row.reason,false,null,row.side==='base'?model.changes.baseSnapshotId:null)));
+        if(row.span) record.append(button('Open exact source','scope-jump',
+          ()=>showChangeSource(record,row.span,row.side==='base'?model.changes.baseSnapshotId:model.snapshotId,label)));
         if(row.analysisError)record.append(el('p','status unknown','Source unavailable: '+row.analysisError));
       } else if(row.id && ['previousMethods','previousRenamedMethods','baselineCallers'].includes(category) && model.changes?.baseSnapshotId) {
         const label=row.name+' · '+row.file+':'+row.span.start;
@@ -648,6 +750,10 @@ async function load(refresh=false) {
     const requestedSnapshot=new URLSearchParams(location.search).get('snapshot');
     if(!sessionToken)sessionToken=(await api('/api/session')).token;
     const summary=refresh?await api('/api/reindex',{}, {method:'POST',headers:{'X-Threadline-Token':sessionToken}}):await api('/api/summary', requestedSnapshot?{snapshot:requestedSnapshot}:{});
+    const [schemaMajor,schemaMinor]=String(summary.schemaVersion||'').split('.').map(Number);
+    if (schemaMajor!==1 || !Number.isInteger(schemaMinor) || schemaMinor<2 || typeof loadDataflow!=='function') {
+      throw new Error('This review server does not support the page. Restart Threadline review, then reload this page.');
+    }
     clearError();closeComparison();
     model={...summary,scopes:{},files:{},generatedWorkflows:{}};
     ++selectionRequest; ++sourceRequest;
@@ -669,7 +775,10 @@ async function load(refresh=false) {
       else await showStartPage();
     } else await showStartPage();
     announce(refresh?'Source refreshed. Flow and source refer to the same snapshot.':'Repository ready.');
-  }catch(error){reportError(new Error('Unable to load the source index: '+error.message),()=>load(refresh),'load');}
+  }catch(error){
+    const message=error.message.startsWith('This review server')?error.message:'Unable to load the source index: '+error.message;
+    reportError(new Error(message),()=>load(refresh),'load');
+  }
   finally{b.disabled=false;b.textContent='↻ Refresh source';}
 }
 let searchTimer; $('#search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>navigation(),150);});

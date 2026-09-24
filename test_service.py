@@ -87,7 +87,7 @@ def service(value):
 
     def test_snapshot_queries_are_bounded_and_consistent(self):
         summary=self.store.summary(limit=1)
-        self.assertEqual(summary['schemaVersion'],'1.1')
+        self.assertEqual(summary['schemaVersion'],'1.2')
         self.assertEqual(summary['entrypoints']['items'][0]['name'],'create')
         self.assertEqual(summary['entrypoints']['items'][0]['confidence'],'supported')
         found=self.store.find_symbols('service',snapshot_id=summary['snapshotId'],limit=1)

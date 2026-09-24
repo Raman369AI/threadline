@@ -2,7 +2,11 @@
 
 [Project home](../README.md) · [Get started](USING_THREADLINE.md) · [Capabilities](CAPABILITIES.md)
 
-Threadline helps you review Python source in a local browser before running it. It shows control flow, calls, return destinations, and source evidence. Analysis reads source and Git objects without importing, installing, or executing the target project.
+Threadline helps you review Python source in a local browser before running it.
+It shows how values enter and change within a method, where they are used,
+linked model declarations, calls, and original source evidence. Analysis reads
+source and Git objects without importing, installing, or executing the target
+project.
 
 ## Start here
 
@@ -14,7 +18,10 @@ python3 -m venv .venv
 .venv/bin/threadline review /path/to/python-repository
 ```
 
-Open the local URL printed by Threadline. Use **Endpoints**, **Commands & tasks**, or **Modules & methods**. The search box finds items across all three pages. One click opens its workflow, steps, and original source.
+Open the local URL printed by Threadline. Use **Endpoints**, **Commands & tasks**,
+or **Modules & methods**. The search box finds items across all three pages.
+One click opens a method's Data flow beside its Data models; Code, Steps,
+Tests, and Callers remain available.
 
 To review your own repository:
 

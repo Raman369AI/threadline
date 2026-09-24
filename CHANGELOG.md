@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0b3 — 2026-09-24
+
 - Resolve common constructor-injected, inherited, dotted-module, and constructed-object method candidates conservatively; correct lexical shadowing, explicit receiver bindings, and nested call identity.
 - Keep Python 3.12 lazy type-alias value calls distinct from class-definition execution.
 - Preserve expression guards, unreachable source, deferred execution context, and construction-time limits across workflow views.
@@ -11,6 +13,8 @@
 - Add typed response contracts and a scoped mypy gate for the schema, workflow projection, and structured CLI.
 - Show the tests linked to the selected method, and the methods a selected test exercises, with that source beside the method.
 - Open each method with a plain-language summary and Steps, Tests, and Callers tabs with counts; label calls Calls, Probably calls, Library, or Can't tell; add a path bar, a reading guide, keyboard shortcuts, and larger text.
+- Trace data through each method, including inputs, assignments, mutations, added values, outputs, and linked template uses; show complete indexed model definitions beside the flow.
+- Show only the selected method in a resizable Code pane with expandable related tests, and let the sidebar collapse to free space for the review.
 - Start the browser review only after every deferred script has run.
 
 ## 0.2.0b2 — 2026-09-18

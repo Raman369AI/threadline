@@ -7,6 +7,22 @@ function el(tag, cls, content) { const node = document.createElement(tag); if (c
 function button(label, cls, handler) { const b = el('button', cls, label); b.type = 'button'; b.addEventListener('click', handler); return b; }
 function walk(nodes) { return nodes.flatMap(node => [node, ...node.branches.flatMap(branch => walk(branch.nodes))]); }
 function scopeName(id) { return model.scopes[id]?.qualified || id; }
+const certaintyLabels = {supported:'Calls', possible:'Probably calls', external:'Library', unknown:"Can't tell"};
+function certaintyLabel(status) { return certaintyLabels[status] || status; }
+// The analyzer's labels are also CLI data; reword only what the browser shows.
+const plainPhrases = [
+  [/^Await: suspension \/ resumption point$/, 'Waits here (await)'],
+  [/^Yield: suspension \/ resumption point$/, 'Hands a value back here (yield)'],
+  [/^YieldFrom: suspension \/ resumption point$/, 'Hands values back here (yield from)'],
+  [/^await: suspension and resumption; exceptions can propagate$/, 'Waits for the result; errors pass through.'],
+  [/^possible effect: /, 'May change state: '],
+  [/^Short-circuit and: /, 'Stops at the first false value: '],
+  [/^Short-circuit or: /, 'Stops at the first true value: '],
+  [/^Chained comparison: stop on first false comparison$/, 'Chained comparison: stops at the first false part'],
+  [/^Lambda definition; body is deferred$/, 'Defines a lambda; its body runs when called'],
+  [/^Deferred generator: /, 'Generator, runs as it is read: '],
+];
+function plain(text) { for (const [pattern, words] of plainPhrases) if (pattern.test(text)) return text.replace(pattern, words); return text; }
 function announce(message) { $('#announcement').textContent = message; }
 function clearError(key) {
   const host = $('#reviewError');
@@ -52,7 +68,7 @@ function appendScopeFlow(host, scope, ancestry, depth) {
         const known=new Set(canonical.flow.map(node=>node.id));
         canonical.flow.push(...page.flow.items.filter(node=>!known.has(node.id)));canonical.nextCursor=page.flow.nextCursor;
         scope.nextCursor=page.flow.nextCursor;
-        if(canonical.nextCursor===null&&state.scope===scope.id)$('#flow .scope-end').textContent='End of body · if control reaches here, Python returns None (or the generator terminates).';
+        if(canonical.nextCursor===null&&state.scope===scope.id)$('#flow .scope-end').textContent='End · returns None if it gets here.';
         clearError('statements');
         const extra=el('div'); more.replaceWith(extra);
         appendScopeFlow(extra, {...scope, flow:page.flow.items}, ancestry, depth);
@@ -220,22 +236,17 @@ async function chooseScope(id, opts={}) {
   state.scope = id; if(workflowState.mode==='starts')setWorkflowMode('workflow'); state.focus = null; state.sourceWhole = false; state.selectedElement = null;
   const scope = model.scopes[id];
   $('#scopePath').textContent = scope.file + (scope.parent && model.scopes[scope.parent] && model.scopes[scope.parent].kind !== 'module' ? ' / ' + scopeName(scope.parent) : '');
-  $('#scopeTitle').textContent = scope.kind === 'module' ? 'Module body' : scope.name.replace(/^_+/, '').replaceAll('_', ' ').replace(/^./, c => c.toUpperCase());
-  $('#methodName').textContent = scope.qualified;
+  $('#methodName').textContent = scope.kind === 'module' ? scope.module + ' (module body)' : scope.qualified;
   $('.method-details').open = false;
   $('#scopeKind').textContent = scope.kind;
-  $('#scopeSummary').textContent = `${scope.stats.calls} explicit calls · ${scope.stats.branches} branch arms / expression decisions · ${scope.stats.unresolved} unknown targets. ${scope.kind === 'module' ? 'Top-level source, including definition-time operations.' : 'All local statements are represented; open a call for its own logic.'}`;
+  $('#scopeSummary').textContent = `${scope.stats.calls} calls · ${scope.stats.branches} branch arms · ${scope.stats.unresolved} Threadline can't trace.`;
   if (scope.decorators.length) $('#scopeSummary').append(document.createTextNode(' Decorators: ' + scope.decorators.join(', ')));
   $('#flow').replaceChildren();
-  if (state.stack.length) {
-    const frame = state.stack.at(-1), strip = el('div','caller-strip');
-    strip.append(el('span','', '↳ From ' + scopeName(frame.invoker || frame.scope) + ' · return → ' + frame.destination), button('Back to caller', 'quiet-button', returnToCaller));
-    $('#flow').append(strip);
-  }
+  renderPathBar();
   appendScopeFlow($('#flow'), scope, [scope.id], 0);
-  $('#flow').append(el('div', 'scope-end', ['module','class'].includes(scope.kind) ? 'End of body · definitions remain individually accessible.' : (scope.nextCursor!==null?'More statements are available using Load more statements above.':'End of body · if control reaches here, Python returns None (or the generator terminates).')));
-  renderPayloads(); navigation(); if (typeof loadTests === 'function') loadTests(id);
-  await showSource(scope.span, scope.qualified, 'Original source for this scope. Select an operation to focus its evidence.');
+  $('#flow').append(el('div', 'scope-end', ['module','class'].includes(scope.kind) ? 'End of body.' : (scope.nextCursor!==null?'More steps load above.':'End · returns None if it gets here.')));
+  renderPayloads(); navigation(); loadOverview(id);
+  await showSource(scope.span, scope.qualified, '');
   if(request!==selectionRequest || captured!==model)return false;
   $('.review').scrollTop = 0;
   const activeNav = $('#navigation .nav-item.active');
@@ -250,11 +261,16 @@ async function enterScope(id, call) {
   state.stack.push(frame);
   await chooseScope(id, {keepStack:true});
 }
+async function returnTo(index) {
+  if (index < 0 || index >= state.stack.length) return;
+  state.stack.length = index + 1;
+  await returnToCaller();
+}
 async function returnToCaller() {
   const frame = state.stack.pop(); if (!frame) return;
   if(!await chooseScope(frame.scope, {keepStack:true}))return;
   state.focus = frame.focus; state.selectedElement = frame.selectedElement;
-  $('#flow').replaceChildren(...frame.dom); renderPayloads();
+  $('#flow').replaceChildren(...frame.dom); renderPayloads(); renderPathBar();
   $('.review').scrollTop = frame.scroll;
   if (frame.focus) await showSource(frame.focus.span, frame.focus.title, frame.focus.details, false, null, frame.focus.snapshotId);
   frame.selectedElement?.querySelector('button')?.focus({preventScroll:true});
@@ -306,30 +322,29 @@ function renderNode(node, scope, ancestry, depth) {
   head.title = 'Inspect original source'; head.append(el('span','op-glyph',icon(node.kind)),el('span','op-label',node.label),el('span','op-line',`L${node.span.start}`));
   card.append(head);
   if (node.unreachable) card.append(el('div','op-description','Unreachable after the preceding unconditional exit in this block.'));
-  if (node.unsupported) card.append(el('div','error','Source retained · behavioral model unsupported.'));
+  if (node.unsupported) card.append(el('div','error',"Threadline doesn't model this kind of statement; read its code."));
   if (node.expression) card.append(el('div','op-description expression-value',node.expression));
   if (node.writes.length && !['Assign','AnnAssign'].includes(node.kind)) card.append(el('div','op-description', 'Writes ' + node.writes.join(', ')));
-  if (node.effects.length) card.append(el('div','effects',node.effects.join(' · ')));
+  if (node.effects.length) card.append(el('div','effects',node.effects.map(plain).join(' · ')));
   if (node.definition) {
     const definition = model.scopes[node.definition];
     const row = el('div','op-description');
-    row.append(button((definition.kind === 'class' ? 'Inspect class body' : 'Inspect definition') + ' ↗', 'scope-jump', () => enterScope(definition.id, {destination:'definition site'})));
+    row.append(button((definition.kind === 'class' ? 'Go to class' : 'Go to definition') + ' →', 'scope-jump', () => enterScope(definition.id, {destination:'definition site'})));
     card.append(row);
   }
   if (node.decisions.length) {
     const decisions = el('div','expression-decisions');
     for (const decision of node.decisions) {
       const box = el('div','expression-decision');
-      box.append(button(decision.label, '', () => showSource(decision.span, 'Expression control flow', (decision.alternatives || []).join(' · '))));
+      box.append(button(plain(decision.label), '', () => showSource(decision.span, plain(decision.label), (decision.alternatives || []).join(' · '))));
       if (decision.alternatives) box.append(el('div','decision-arms',decision.alternatives.join(' / ')));
-      if (decision.target) box.append(button('Open lambda ↗','scope-jump',()=>enterScope(decision.target,{destination:'lambda definition'})));
+      if (decision.target) box.append(button('Go to lambda →','scope-jump',()=>enterScope(decision.target,{destination:'lambda definition'})));
       decisions.append(box);
     }
     card.append(decisions);
   }
   if (node.calls.length) {
     const calls = el('div','calls');
-    if (node.calls.length > 1) calls.append(el('div','source-peek','Expression call sites · nested arguments shown before their enclosing call'));
     for (const call of node.calls) calls.append(renderCall(call, scope, ancestry, depth));
     card.append(calls);
   }
@@ -363,9 +378,9 @@ function selectNode(node, scope, host) {
 
 function renderCall(call, scope, ancestry, depth) {
   const host = el('div','call'); host.dataset.call = call.id;
-  const row = el('div','call-row'); row.append(el('span','call-title',call.name + (call.execution?.startsWith('deferred') ? ' · deferred' : call.execution?.startsWith('background') ? ' · background' : call.awaited ? ' · await' : '') + (call.conditional ? ' · conditional/deferred' : '')), el('span','status '+call.status,call.status === 'supported' ? 'source-linked' : call.status));
+  const row = el('div','call-row'); row.append(el('span','call-title',call.name + (call.execution?.startsWith('deferred') ? ' · deferred' : call.execution?.startsWith('background') ? ' · background' : call.awaited ? ' · await' : '') + (call.conditional ? ' · conditional' : '')), el('span','status '+call.status,certaintyLabel(call.status)));
   const contents = el('div'); contents.hidden = true;
-  const toggle = button(call.targets.length ? 'Open call ↳' : 'Inspect ?', 'call-open', async () => {
+  const toggle = button(call.targets.length ? 'Show inside' : 'Why?', 'call-open', async () => {
     const opening = contents.hidden;
     if (opening && !contents.childNodes.length) {
       const hadFocus=document.activeElement===toggle;
@@ -374,21 +389,21 @@ function renderCall(call, scope, ancestry, depth) {
       catch(error){contents.replaceChildren();if(host.isConnected) reportError(error,()=>toggle.click(),'call');return;}
       finally {toggle.disabled=false;if(hadFocus && host.isConnected && document.activeElement===document.body)toggle.focus({preventScroll:true});}
     }
-    contents.hidden = !opening; toggle.textContent = opening ? 'Close ↥' : call.targets.length ? 'Open call ↳' : 'Inspect ?'; toggle.setAttribute('aria-expanded', String(opening));
+    contents.hidden = !opening; toggle.textContent = opening ? 'Hide' : call.targets.length ? 'Show inside' : 'Why?'; toggle.setAttribute('aria-expanded', String(opening));
 
-  }); toggle.setAttribute('aria-expanded','false'); toggle.dataset.closedLabel = call.targets.length ? 'Open call ↳' : 'Inspect ?'; row.append(toggle); host.append(row,contents); return host;
+  }); toggle.setAttribute('aria-expanded','false'); toggle.dataset.closedLabel = call.targets.length ? 'Show inside' : 'Why?'; row.append(toggle); host.append(row,contents); return host;
 }
 async function fillCall(host,call,scope,ancestry,depth) {
   const captured=model;
   for(const id of call.targets) await ensureScope(id,captured);
   if(captured!==model) return;
   const info = el('div','call-detail');
-  if (call.execution && call.execution !== 'ordinary call') host.append(el('div','call-execution',call.execution));
-  info.append(document.createTextNode(call.reason + '. '),button('Call-site evidence','scope-jump',()=>showSource(call.span,call.expression,call.reason + '\nReturn destination: ' + call.destination)));
+  if (call.execution && call.execution !== 'ordinary call') host.append(el('div','call-execution',plain(call.execution)));
+  info.append(document.createTextNode(call.reason + '. '),button('Show call','scope-jump',()=>showSource(call.span,call.expression,call.reason + '\nReturn destination: ' + call.destination)));
   host.append(info);
   if (!call.targets.length) {
     host.append(el('div','call-detail','Arguments: ' + (call.arguments.join(' · ') || '(none)')));
-    host.append(el('div','call-detail','Return destination: ' + call.destination + '. May raise; external effects and dispatch are not established by this index.'));
+    host.append(el('div','call-detail','Result goes to: ' + call.destination + '.'));
     return;
   }
   for (const targetId of call.targets) {
@@ -403,20 +418,20 @@ async function fillCall(host,call,scope,ancestry,depth) {
     box.append(map);
     if (ancestry.includes(targetId)) {
       box.append(el('div','recursive-note','↻ Recursive reference to ' + target.qualified + '. Body is already open above; this call returns to ' + call.destination + '.'));
-      box.append(button('Focus method','scope-jump',()=>enterScope(targetId,call)));
+      box.append(button('Go to →','scope-jump',()=>enterScope(targetId,call)));
     } else if (depth >= 1) {
-      box.append(el('div','call-detail',`${target.stats.branches} branch arms / decisions · ${target.stats.calls} calls. Open at full reading width; the caller and return point stay pinned.`));
-      box.append(button('Read method with caller pinned →','quiet-button',()=>enterScope(targetId,call)));
+      box.append(el('div','call-detail',`${target.stats.calls} calls · ${target.stats.branches} branch arms.`));
+      box.append(button('Go to →','quiet-button',()=>enterScope(targetId,call)));
     } else if (target.kind === 'class') {
-      box.append(el('div','call-detail','Constructor target: class body is definition-time source. Instance construction may dispatch __new__, __init__, and metaclass hooks.'));
+      box.append(el('div','call-detail','Creates an object of this class; its __init__ usually runs.'));
       const constructor = Object.values(model.scopes).find(s=>s.parent === targetId && s.name === '__init__');
-      if (constructor) box.append(button('Read possible __init__ →','quiet-button',()=>enterScope(constructor.id,call)));
-      box.append(button('Inspect class definition','scope-jump',()=>enterScope(targetId,call)));
+      if (constructor) box.append(button('Go to __init__ →','quiet-button',()=>enterScope(constructor.id,call)));
+      box.append(button('Go to class →','scope-jump',()=>enterScope(targetId,call)));
     } else {
-      header.append(button('Source','quiet-button',()=>showSource(target.span,target.qualified,'Original called function source.')));
+      header.append(button('Show code','quiet-button',()=>showSource(target.span,target.qualified,'')));
       appendScopeFlow(box,target,[...ancestry,targetId],depth+1);
     }
-    box.append(el('div','resume',(call.execution?.startsWith('deferred') ? '↩ Call produces a deferred object → ' : '↩ On normal return → ') + call.destination + ' · caller resumes at ' + call.span.file + ':' + call.span.end + '. Exceptions follow the enclosing handler / propagate.'));
+    box.append(el('div','resume',(call.execution?.startsWith('deferred') ? '↩ Produces a deferred object → ' : '↩ Returns → ') + call.destination));
     host.append(box);
   }
 }
@@ -474,7 +489,7 @@ async function showSource(span,title,details='',preserveScroll=false,pageStart=n
     if(request!==sourceRequest || captured!==model) return;
     clearError('source');
     $('#sourceFile').textContent=span.file;
-    $('#sourceContext').replaceChildren(el('strong','',title),el('div','',`Evidence lines ${span.start}–${span.end} · showing ${result.span.start}–${result.span.end}`));
+    $('#sourceContext').replaceChildren(el('strong','',title),el('div','',span.start===span.end?`Line ${span.start}`:`Lines ${span.start}–${span.end}`));
     const lines=result.source.split('\n'), code=$('#sourceCode'), oldScroll=code.scrollTop;
     code.replaceChildren(); code.classList.toggle('wrap-code',state.wrap);
     lines.forEach((value,index)=>{

@@ -67,8 +67,33 @@ class TestSave:
         self.assertEqual(result['role'],'test')
         self.assertEqual([(row['name'],row['via']) for row in result['items']['items']],[('place_order',['make'])])
 
+    def test_overview_summarizes_and_counts_tabs(self):
+        result=self.store.method_overview(self.ids['place_order'])
+        self.assertEqual(result['summary'],'Takes order. Calls validate and save. Returns save(order).'.replace('save(order)','a value') + ' 1 decision point.')
+        self.assertEqual(result['counts'],{'tests':2,'callers':0,'unresolved':0})
+        self.assertEqual(result['where'],'app/orders.py:5')
+        callers=self.store.method_overview(self.ids['validate'])['callers']['items']
+        self.assertEqual([(row['name'],row['status']) for row in callers],[('place_order','supported')])
+
+    def test_overview_names_created_objects_raises_and_untraced_calls(self):
+        from threadline.overview import summary
+        root=Path(self.temp.name)
+        (root/'app'/'billing.py').write_text('''class Invoice:
+    pass
+def bill(customer, amount):
+    if amount < 0:
+        raise ValueError("negative")
+    handler = customer.pick()
+    handler(amount)
+    return Invoice()
+''')
+        store=SnapshotStore(root)
+        scope=next(s for s in store.current['scopes'].values() if s['qualified']=='bill')
+        self.assertEqual(summary(store.current,scope),"Takes customer and amount. Creates Invoice and can raise ValueError. Returns a value. 1 decision point · 2 calls Threadline can't trace.")
+
     def test_unknown_symbols_and_pages_are_rejected(self):
         with self.assertRaises(ThreadlineError): self.store.related_tests('missing')
+        with self.assertRaises(ThreadlineError): self.store.method_overview('missing')
         with self.assertRaises(ThreadlineError): self.store.related_tests(self.ids['save'],limit=0)
 
 

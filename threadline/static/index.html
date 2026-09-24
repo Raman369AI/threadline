@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Threadline · Python review</title>
-<link rel="stylesheet" href="styles.css"><script src="app.js" defer></script><script src="workflow.js" defer></script><script src="tests.js" defer></script>
+<link rel="stylesheet" href="styles.css"><script src="app.js" defer></script><script src="workflow.js" defer></script><script src="tests.js" defer></script><script src="method.js" defer></script>
 </head>
 <body>
 <a href="#flow" class="skip-link">Skip to method flow</a>
@@ -11,10 +11,30 @@
   <a class="brand" href="#" aria-label="Threadline home"><span class="brand-icon" aria-hidden="true">↳</span> threadline</a>
   <span class="top-divider"></span><span id="projectName">Loading source…</span>
   <button id="analysisStatus" class="analysis-status" aria-controls="coveragePanel" hidden></button>
-  <span class="top-spacer"></span><span class="static-state"><i></i> Source only · not executed</span>
+  <span class="top-spacer"></span><button id="helpButton" class="static-state" aria-expanded="false" aria-controls="helpPanel" title="How to read this review"><i></i> Source only · not executed <span class="help-mark" aria-hidden="true">?</span></button>
   <button id="coverageButton" class="quiet-button" aria-expanded="false" aria-controls="coveragePanel">Coverage</button>
   <button id="refreshButton" class="quiet-button" title="Read the current files again">↻ Refresh source</button>
 </header>
+<section id="helpPanel" class="coverage-panel help-panel" tabindex="-1" role="region" aria-label="How to read this review" hidden>
+  <h2>How to read this review</h2>
+  <p>Threadline reads your Python source. It never runs it, so every link below is what the code says, not what happened at runtime. Tests are linked the same way; they are not run and coverage is not measured.</p>
+  <h3>How sure a link is</h3>
+  <dl class="legend">
+    <dt><span class="certainty supported">Calls</span></dt><dd>The source names exactly one method.</dd>
+    <dt><span class="certainty possible">Probably calls</span></dt><dd>The likely target, but inheritance, decorators, or a reassignment could change it.</dd>
+    <dt><span class="certainty external">Library</span></dt><dd>Code outside this repository, such as the standard library or a dependency.</dd>
+    <dt><span class="certainty unknown">Can't tell</span></dt><dd>The target is decided at runtime, for example a callback or a dynamic attribute.</dd>
+  </dl>
+  <h3>Moving around</h3>
+  <p>Selecting anything shows its code on the right. <strong>Go to →</strong> opens that method, and the path bar above the title leads back.</p>
+  <dl class="legend shortcuts">
+    <dt><kbd>/</kbd></dt><dd>Search</dd>
+    <dt><kbd>j</kbd> <kbd>k</kbd></dt><dd>Next or previous step</dd>
+    <dt><kbd>s</kbd> <kbd>t</kbd> <kbd>c</kbd></dt><dd>Steps, Tests, or Callers</dd>
+    <dt><kbd>Backspace</kbd></dt><dd>Back along the path</dd>
+    <dt><kbd>?</kbd></dt><dd>Show or hide this help</dd>
+  </dl>
+</section>
 <section id="coveragePanel" class="coverage-panel" tabindex="-1" role="region" aria-label="Source coverage" hidden></section>
 <div id="reviewError" class="review-error error" role="region" aria-label="Review error" hidden></div>
 <div class="workspace">
@@ -31,12 +51,20 @@
   </main>
   <main class="review">
     <div id="baselineNotice" class="baseline-notice" hidden></div>
-    <section id="workflowContext" hidden aria-label="Workflow stage context"></section>
+    <nav id="pathBar" class="path-bar caller-strip" aria-label="Path from the first method" hidden></nav>
+    <section id="workflowContext" hidden aria-label="Selected call"></section>
     <div class="review-heading">
-      <div class="title-row"><h1 id="scopeTitle">Reading the repository</h1></div>
-      <code id="methodName" class="method-name"></code>
+      <h1 id="scopeTitle" class="method-title"><code id="methodName" class="method-name">Reading the repository</code></h1>
+      <p id="methodWhere" class="method-where"></p>
+      <p id="methodSummary" class="method-summary"></p>
       <div id="payloadSummary" class="payload-summary" role="group" aria-label="Input and output"></div>
-      <section id="testsPanel" class="tests-panel" aria-label="Related tests" hidden></section>
+      <div id="methodTabs" class="method-tabs" role="tablist" aria-label="Method views" hidden>
+        <button id="tab-steps" role="tab" data-tab="steps" aria-controls="stepsPanel" aria-selected="true">Steps</button>
+        <button id="tab-tests" role="tab" data-tab="tests" aria-controls="testsPanel" aria-selected="false" tabindex="-1">Tests <span id="testsCount" class="tab-count"></span></button>
+        <button id="tab-callers" role="tab" data-tab="callers" aria-controls="callersPanel" aria-selected="false" tabindex="-1">Callers <span id="callersCount" class="tab-count"></span></button>
+      </div>
+    </div>
+    <section id="stepsPanel" class="tab-panel" role="tabpanel" aria-labelledby="tab-steps">
       <details class="method-details"><summary>Details</summary>
         <div id="scopePath" class="breadcrumb"></div>
         <span id="scopeKind" class="kind-label"></span>
@@ -45,21 +73,23 @@
         <div id="returnDetails"></div>
         <div class="review-controls"><button id="expandBranches" class="quiet-button">Expand visible branches</button><button id="collapseCalls" class="quiet-button">Collapse calls</button></div>
       </details>
-      <div class="reading-hint">Click any step below to see its code →</div>
-    </div>
-    <div id="flow" class="flow" tabindex="-1"></div>
+      <p class="reading-hint">Select a step to see its code.</p>
+      <div id="flow" class="flow" tabindex="-1"></div>
+    </section>
+    <section id="testsPanel" class="tab-panel tests-panel" role="tabpanel" aria-labelledby="tab-tests" hidden></section>
+    <section id="callersPanel" class="tab-panel tests-panel" role="tabpanel" aria-labelledby="tab-callers" hidden></section>
   </main>
   <main id="comparisonPanel" class="comparison-panel" aria-label="Before and after source comparison" hidden></main>
   <aside class="source-panel" aria-label="Original source">
-    <div class="source-header"><div><span class="section-label">ORIGINAL CODE</span><div id="sourceFile" class="source-file">Select a flow operation</div></div><button id="clearFocus" class="quiet-button" title="Show the selected method">Whole method</button></div>
-    <div id="sourceContext" class="source-context">The surrounding flow stays in place.</div>
+    <div class="source-header"><div><span class="section-label">CODE</span><div id="sourceFile" class="source-file">Select a flow operation</div></div><button id="clearFocus" class="quiet-button" title="Show the selected method">Whole method</button></div>
+    <div id="sourceContext" class="source-context">Select a step to see its code.</div>
     <div id="sourceCode" class="code-window" role="region" tabindex="0" aria-label="Original Python source"></div>
     <section id="pairPane" class="pair-pane" aria-labelledby="pairTitle" hidden>
       <div class="pair-header"><div><span id="pairLabel" class="section-label">TEST CODE</span><div class="pair-name"><code id="pairTitle"></code> <span id="pairFile" class="pair-file"></span></div></div><button id="pairClose" class="quiet-button" title="Hide this code">Close</button></div>
       <div id="pairCode" class="code-window" role="region" tabindex="0" aria-label="Related source"></div>
     </section>
     <div id="sourceDetails" class="source-details"></div>
-    <div class="source-footer"><span id="snapshotLabel">Source snapshot</span><span>Read only · never executed</span></div>
+    <div class="source-footer"><span id="snapshotLabel">Source snapshot</span></div>
   </aside>
 </div>
 <div id="announcement" class="sr-only" aria-live="polite"></div>

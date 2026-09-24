@@ -8,7 +8,7 @@ function closePair() {
   ++pairRequest;
   $('#pairPane').hidden = true; $('#pairCode').replaceChildren();
   $('.source-panel').classList.remove('paired');
-  document.querySelectorAll('#testsPanel .test-row.active').forEach(row => row.classList.remove('active'));
+  document.querySelectorAll('.tab-panel .test-row.active').forEach(row => row.classList.remove('active'));
 }
 
 async function loadTests(id, cursor=0) {
@@ -17,8 +17,7 @@ async function loadTests(id, cursor=0) {
   if (cursor === 0 && testsShown?.model === model && testsShown.id === id) return;
   const request = ++testsRequest, captured = model;
   if (cursor === 0) { closePair(); testsShown = {model, id}; }
-  host.hidden = !scope || ['module', 'class'].includes(scope.kind);
-  if (host.hidden) return;
+  if (!scope || ['module', 'class'].includes(scope.kind)) return;
   if (cursor === 0) host.replaceChildren(el('p', 'source-peek', 'Finding related tests…'));
   try {
     const result = await api('/api/tests', {symbol:id, snapshot:captured.snapshotId, cursor, limit:20});
@@ -34,72 +33,72 @@ async function loadTests(id, cursor=0) {
 function renderTests(host, id, result, cursor) {
   const isTest = result.role === 'test', page = result.items;
   if (cursor === 0) {
-    const heading = el('div', 'tests-heading');
-    heading.append(el('span', 'payload-label', isTest ? 'This test exercises' : 'Tests'));
-    heading.append(el('span', 'tests-count', isTest ? `${page.total} method${page.total === 1 ? '' : 's'}`
-      : page.total ? `${page.total} related` : ''));
-    host.replaceChildren(heading);
+    host.replaceChildren();
     if (!page.total) {
-      host.append(el('p', 'tests-empty', isTest ? 'No calls from this test resolve to indexed source.'
+      host.append(el('p', 'tests-empty', isTest ? 'No calls from this test lead to code Threadline could find.'
         : result.testCount ? 'No test reaches this method through calls, routes, or names.'
-        : 'No tests were found in the analyzed source. If tests live outside the source root, include their folder.'));
+        : 'No tests were found. If your tests live outside the analyzed folders, include them with --source-root.'));
       return;
     }
-    host.append(el('p', 'tests-hint', `Select one to see its code next to this ${isTest ? 'test' : 'method'}. Linked from source; tests were not run.`), el('div', 'test-list'));
+    host.append(el('p', 'tests-count-line', isTest
+      ? `This test exercises ${page.total} method${page.total === 1 ? '' : 's'}. Select one to see it beside the test.`
+      : `${page.total} test${page.total === 1 ? ' reaches' : 's reach'} this method. Select one to see it beside the code.`), el('div', 'test-list'));
   }
   const list = host.querySelector('.test-list');
   host.querySelector('.tests-more')?.remove();
-  for (const row of page.items) list.append(testRow(row, isTest));
+  for (const row of page.items) list.append(linkRow(row, isTest ? 'subject' : 'test'));
   if (page.nextCursor !== null) {
     const more = button(`Show ${Math.min(20, page.total - page.nextCursor)} more`, 'quiet-button tests-more', () => { more.disabled = true; loadTests(id, page.nextCursor); });
     host.append(more);
   }
 }
 
-function testRow(row, isTest) {
-  const item = el('div', 'test-row ' + (isTest ? 'direct' : row.relation) + (row.status === 'possible' ? ' uncertain' : ''));
-  const pick = button('', 'test-pick', () => showPair(row, isTest, item));
-  pick.setAttribute('aria-label', `${isTest ? 'Show code for' : 'Show test'} ${row.name}: ${row.reason}`);
+// kind: 'test' (a test of this method), 'subject' (code a test exercises), or 'caller'.
+function linkRow(row, kind) {
+  const uncertain = row.status === 'possible';
+  const item = el('div', 'test-row ' + (kind === 'test' ? row.relation : 'direct') + (uncertain ? ' uncertain' : ''));
+  const pick = button('', 'test-pick', () => showPair(row, kind, item));
+  pick.setAttribute('aria-label', `Show ${kind === 'test' ? 'test' : 'code of'} ${row.name}: ${row.reason}`);
   const top = el('span', 'test-top');
-  if (!isTest) top.append(el('span', 'test-badge', relationLabels[row.relation]));
+  top.append(el('span', 'test-badge', kind === 'test' ? relationLabels[row.relation] : certaintyLabel(row.status)));
   top.append(el('code', 'test-name', row.name));
-  pick.append(top, el('span', 'test-reason', row.reason + (row.status === 'possible' ? ' · possible' : '')), el('span', 'test-file', `${row.file}:${row.line}`));
-  const open = button('Open →', 'test-open', () => startReview(row.id));
-  open.title = 'Review this ' + (isTest ? 'method' : 'test') + "'s flow";
-  open.setAttribute('aria-label', `Open ${row.name}`);
+  const reason = kind === 'caller' ? `Line ${row.callsite.start}` : row.reason;
+  pick.append(top, el('span', 'test-reason', reason + (uncertain && kind === 'test' ? ' · probably' : '')), el('span', 'test-file', `${row.file}:${row.line}`));
+  const open = button('Go to →', 'test-open', () => startReview(row.id));
+  open.setAttribute('aria-label', `Go to ${row.name}`);
   item.append(pick, open);
   return item;
 }
 
-async function showPair(row, isTest, item) {
+async function showPair(row, kind, item) {
   const request = ++pairRequest, captured = model;
-  document.querySelectorAll('#testsPanel .test-row.active').forEach(other => other.classList.remove('active'));
+  document.querySelectorAll('.tab-panel .test-row.active').forEach(other => other.classList.remove('active'));
   item.classList.add('active');
-  $('#pairLabel').textContent = isTest ? 'CODE UNDER TEST' : 'TEST CODE';
+  $('#pairLabel').textContent = {test:'TEST', subject:'CODE UNDER TEST', caller:'CALLER'}[kind];
   $('#pairTitle').textContent = row.name;
   $('#pairFile').textContent = `${row.file}:${row.line}`;
   $('#pairPane').hidden = false; $('.source-panel').classList.add('paired');
   const code = $('#pairCode'); code.replaceChildren(el('p', 'source-peek', 'Loading…'));
-  // A test's call site is the evidence; for code under test, the definition is.
-  const focus = isTest ? row.span : row.callsite, span = row.span;
+  // Tests and callers highlight the line that makes the call; tested code shows its definition.
+  const focus = kind === 'subject' ? null : row.callsite, span = row.span;
   const start = span.start, end = Math.min(span.end, start + 199);
   try {
     const result = await api('/api/source', {snapshot:captured.snapshotId, file:span.file, start, end});
     if (request !== pairRequest || captured !== model) return;
     code.replaceChildren(); code.classList.toggle('wrap-code', state.wrap);
     result.source.split('\n').forEach((value, index) => {
-      const number = start + index, marked = !isTest && focus.file === span.file && number >= focus.start && number <= focus.end;
+      const number = start + index, marked = focus && focus.file === span.file && number >= focus.start && number <= focus.end;
       const line = el('div', 'code-line' + (marked ? ' focus' : '')); line.dataset.line = String(number);
       const content = el('span', 'line-content'); content.innerHTML = syntax(value) || ' ';
       line.append(el('span', 'line-number', String(number)), content); code.append(line);
     });
-    if (result.truncated) code.append(el('p', 'source-peek', 'Showing the first 200 lines. Open it to read the rest.'));
+    if (result.truncated) code.append(el('p', 'source-peek', 'Showing the first 200 lines. Use Go to → to read the rest.'));
     const marked = code.querySelector('.code-line.focus');
     code.scrollTop = marked ? Math.max(0, marked.offsetTop - code.offsetTop - 46) : 0;
-    announce(`${isTest ? 'Code' : 'Test'} ${row.name} shown beside the method`);
+    announce(`${row.name} shown beside the method`);
   } catch (error) {
-    if (request === pairRequest && captured === model) code.replaceChildren(el('p', 'error', error.message), button('Retry', 'quiet-button', () => showPair(row, isTest, item)));
+    if (request === pairRequest && captured === model) code.replaceChildren(el('p', 'error', error.message), button('Retry', 'quiet-button', () => showPair(row, kind, item)));
   }
 }
 
-$('#pairClose').addEventListener('click', () => { const active = $('#testsPanel .test-row.active .test-pick'); closePair(); active?.focus(); });
+$('#pairClose').addEventListener('click', () => { const active = $('.tab-panel .test-row.active .test-pick'); closePair(); active?.focus(); });

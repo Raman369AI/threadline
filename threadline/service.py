@@ -11,7 +11,7 @@ from typing import Any
 
 from .analyzer import analyze, AnalysisLimitError
 from .workflows import generic_workflow, suggested_entrypoints, workflow_catalog
-from . import testlinks
+from . import overview, testlinks
 
 SCHEMA_VERSION = "1.1"
 MAX_PAGE = 100
@@ -312,6 +312,29 @@ class SnapshotStore:
         workflow['nextCursor'] = next((page['nextCursor'] for page in (stage_page, workflow['alternatives'], workflow['uncertainties']) if page['nextCursor'] is not None), None)
         return copy.deepcopy(workflow)
 
+    def _links(self, model):
+        with self._test_lock:
+            index = self._test_index.get(model['snapshotId'])
+            if index is None:
+                index = self._test_index[model['snapshotId']] = testlinks.build_index(model)
+        return index
+
+    def method_overview(self, symbol_id, *, snapshot_id=None, cursor=0, limit=20):
+        """Summary sentence, tab counts, and a page of callers for one method."""
+        model = self.model(snapshot_id)
+        scope = model['scopes'].get(symbol_id)
+        if scope is None:
+            raise ThreadlineError('Definition is absent from this snapshot')
+        _page([], cursor, limit)
+        index = self._links(model)
+        is_test = symbol_id in index['tests']
+        tests = (testlinks.tested_subjects if is_test else testlinks.related_tests)(model, index, symbol_id)
+        rows = overview.callers(model, index, symbol_id)
+        return {'snapshotId': model['snapshotId'], 'symbol': symbol_id, 'role': 'test' if is_test else 'code',
+                'summary': overview.summary(model, scope), 'where': f"{scope['file']}:{scope['span']['start']}",
+                'counts': {'tests': len(tests), 'callers': len(rows), 'unresolved': scope['stats']['unresolved']},
+                'callers': add_evidence_ids(_page(rows, cursor, limit))}
+
     def related_tests(self, symbol_id, *, snapshot_id=None, cursor=0, limit=20):
         """Tests linked to a method, or the methods a selected test exercises."""
         model = self.model(snapshot_id)
@@ -319,10 +342,7 @@ class SnapshotStore:
         if scope is None:
             raise ThreadlineError('Definition is absent from this snapshot')
         _page([], cursor, limit)
-        with self._test_lock:
-            index = self._test_index.get(model['snapshotId'])
-            if index is None:
-                index = self._test_index[model['snapshotId']] = testlinks.build_index(model)
+        index = self._links(model)
         role = 'test' if symbol_id in index['tests'] else 'code'
         rows = testlinks.tested_subjects(model, index, symbol_id) if role == 'test' else testlinks.related_tests(model, index, symbol_id)
         return {'snapshotId': model['snapshotId'], 'symbol': symbol_id, 'role': role, 'testCount': len(index['tests']),

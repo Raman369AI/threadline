@@ -51,8 +51,9 @@ the [usage guide](https://github.com/Raman369AI/threadline/blob/main/docs/USING_
 
 ## Understand the limits
 
-Threadline uses static analysis. Calls are labeled **supported**, **possible**,
-**external**, or **unknown** according to the source evidence. Common injected,
+Threadline uses static analysis. The browser labels each call **Calls**, **Probably
+calls**, **Library**, or **Can't tell** according to the source evidence (`supported`,
+`possible`, `external`, and `unknown` in JSON output). Common injected,
 inherited, and constructed receivers can have possible source candidates. Dynamic
 dispatch can remain unresolved; the view does not establish what happened at runtime.
 The header shows analysis problems, and **Coverage** lists parse failures and unmodeled

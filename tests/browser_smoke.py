@@ -302,6 +302,11 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         checks['possible_target_returns_to_callsite']=js("state.scope===window.__ooEntry")
         js("(async()=>{const rows=await api('/api/symbols',{q:'Repo.get',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.qualified==='Repo.get').id);})()")
         for _ in range(100):
+            if js("document.querySelector('#testsCount').textContent==='1'"):break
+            time.sleep(.02)
+        checks['tab_counts_and_summary']=js("document.querySelector('#testsCount').textContent==='1' && document.querySelector('#methodSummary').textContent.startsWith('Takes no input.') && document.querySelector('#tab-steps').getAttribute('aria-selected')==='true' && document.querySelector('#testsPanel').hidden")
+        js("document.querySelector('#tab-tests').click()")
+        for _ in range(100):
             if js("document.querySelector('#testsPanel .test-row')!==null"):break
             time.sleep(.02)
         checks['related_test_listed_with_reason']=js("document.querySelector('#testsPanel .test-row.indirect')?.textContent.includes('test_entry_reads_repo') && document.querySelector('#testsPanel').textContent.includes('through Service.entry')")
@@ -312,18 +317,36 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         checks['test_source_beside_method']=js("!document.querySelector('#pairPane').hidden && document.querySelector('#pairCode .code-line.focus')?.textContent.includes('entry()') && document.querySelector('#sourceCode').textContent.includes('def get')")
         js("document.querySelector('#testsPanel .test-open').click()")
         for _ in range(100):
+            if js("document.querySelector('#methodName').textContent==='test_entry_reads_repo' && document.querySelector('#testsCount').textContent!==''"):break
+            time.sleep(.02)
+        checks['new_method_opens_on_steps']=js("document.querySelector('#tab-steps').getAttribute('aria-selected')==='true' && document.querySelector('#tab-tests').textContent.startsWith('Exercises')")
+        js("document.querySelector('#tab-tests').click()")
+        for _ in range(100):
             if js("document.querySelector('#methodName').textContent==='test_entry_reads_repo' && document.querySelector('#testsPanel').textContent.includes('Service.entry')"):break
             time.sleep(.02)
         checks['selected_test_lists_exercised_code']=js("document.querySelector('#testsPanel').textContent.includes('This test exercises') && document.querySelector('#testsPanel').textContent.includes('Service.entry') && document.querySelector('#pairPane').hidden")
         # Opening a test selects it again for its workflow entry; the list must not reload.
         js("(async()=>{await selectWorkflowStage('entry');})()")
-        checks['reselecting_method_keeps_tests']=js("performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/tests?symbol='+encodeURIComponent(state.scope))).length===1 && document.querySelector('#testsPanel').textContent.includes('This test exercises')")
+        checks['reselecting_method_keeps_tests']=js("performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/tests?symbol='+encodeURIComponent(state.scope))).length===1 && !document.querySelector('#testsPanel').hidden && document.querySelector('#testsPanel').textContent.includes('This test exercises')")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'Repo.get',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.qualified==='Repo.get').id);document.querySelector('#tab-callers').click();})()")
+        for _ in range(100):
+            if js("document.querySelector('#callersPanel .test-row')!==null"):break
+            time.sleep(.02)
+        checks['callers_tab_lists_callers']=js("[...document.querySelectorAll('#callersPanel .test-name')].some(n=>n.textContent==='Service.entry') && document.querySelector('#callersPanel').textContent.includes('Probably calls')")
+        js("document.body.focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'s',bubbles:true}))")
+        checks['keyboard_tab_shortcut']=js("document.querySelector('#tab-steps').getAttribute('aria-selected')==='true' && !document.querySelector('#stepsPanel').hidden")
+        js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'j',bubbles:true}))")
+        checks['keyboard_next_step']=js("state.selectedElement!==null && document.activeElement.classList.contains('op-head')")
+        js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'?',bubbles:true}))")
+        checks['help_opens_with_legend']=js("!document.querySelector('#helpPanel').hidden && document.querySelector('#helpPanel').textContent.includes('Probably calls') && document.querySelector('#helpButton').getAttribute('aria-expanded')==='true'")
+        js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+        checks['help_closes_on_escape']=js("document.querySelector('#helpPanel').hidden")
         js("(async()=>{const rows=await api('/api/symbols',{q:'unreachable',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='unreachable').id);await showSelectedWorkflow();})()")
         checks['unreachable_workflow_stage_marked']=js("[...document.querySelectorAll('.workflow-stage.unreachable')].some(b=>b.textContent.includes('Unreachable'))")
         js("(async()=>{const rows=await api('/api/symbols',{q:'conditional',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='conditional').id);await showSelectedWorkflow();})()")
         checks['conditional_workflow_stage_marked']=js("[...document.querySelectorAll('.workflow-stage')].some(b=>b.textContent.includes('Runs only if'))")
         js("(async()=>{const rows=await api('/api/symbols',{q:'built',snapshot:model.snapshotId});window.__built=rows.symbols.items.find(s=>s.name==='built').id;await chooseScope(window.__built);await showSelectedWorkflow();const stage=workflowState.profile.stages.find(s=>s.construction);await selectWorkflowStage(stage.id);})()")
-        checks['construction_does_not_open_class_body_as_call']=js("state.scope===window.__built && document.querySelector('#workflowContext').textContent.includes('Constructing an object') && document.querySelector('#workflowContext').textContent.includes('Inspect possible Repo.__init__')")
+        checks['construction_does_not_open_class_body_as_call']=js("state.scope===window.__built && document.querySelector('#workflowContext').textContent.includes('Constructing an object') && document.querySelector('#workflowContext').textContent.includes('Go to Repo.__init__')")
         (fixture_root/'broken.py').write_text('def incomplete(:\n')
         js("load(true)")
         checks['parse_failure_prominent_and_retrievable']=js("!document.querySelector('#analysisStatus').hidden && document.querySelector('#analysisStatus').textContent.includes('1 analysis issue') && document.querySelector('#coveragePanel').textContent.includes('Analysis issues · 1')")

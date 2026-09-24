@@ -2,6 +2,7 @@
 // Method page: summary sentence, Steps/Tests/Callers tabs, the path bar,
 // the reading guide, and keyboard shortcuts.
 let overviewRequest = 0, overviewShown = null, overviewData = null;
+let selectedMethodView = 'dataflow', lastAnalysisView = 'dataflow';
 
 function selectTab(name, focus=false) {
   const tabs = [...document.querySelectorAll('#methodTabs [role=tab]')];
@@ -9,12 +10,15 @@ function selectTab(name, focus=false) {
   for (const item of tabs) {
     const selected = item === tab;
     item.setAttribute('aria-selected', String(selected)); item.tabIndex = selected ? 0 : -1;
-    $('#' + item.getAttribute('aria-controls')).hidden = !selected;
+    if(item.dataset.tab!=='code')$('#' + item.getAttribute('aria-controls')).hidden = !selected;
   }
-  closePair();
+  selectedMethodView=tab.dataset.tab;
+  if(selectedMethodView!=='code')lastAnalysisView=selectedMethodView;
+  if(typeof setCodeFull==='function')setCodeFull(selectedMethodView==='code');
+  if(selectedMethodView!=='tests')closePair();
   if (tab.dataset.tab === 'tests') loadTests(state.scope);
   if (tab.dataset.tab === 'callers') renderCallers();
-  if (focus) tab.focus();
+  if(focus)(tab.dataset.tab==='code'?$('#restoreCode'):tab).focus();
 }
 
 async function loadOverview(id) {
@@ -28,7 +32,7 @@ async function loadOverview(id) {
   $('#methodTabs').hidden = !callable;
   $('#testsCount').textContent = $('#callersCount').textContent = '';
   $('#callersPanel').replaceChildren();
-  selectTab('steps');
+  selectTab(selectedMethodView);
   if (!callable) return;
   try {
     const data = await api('/api/overview', {symbol:id, snapshot:captured.snapshotId, limit:20});
@@ -118,7 +122,7 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !$('#helpPanel').hidden) { toggleHelp(false); return; }
   if (event.key === '?') { event.preventDefault(); toggleHelp(); return; }
   if (!state.scope || $('.workspace').classList.contains('choosing') || !$('#comparisonPanel').hidden) return;
-  const tab = {s:'steps', t:'tests', c:'callers'}[event.key];
+  const tab = {d:'dataflow',s:'steps',t:'tests',c:'callers'}[event.key];
   if (tab && !$('#methodTabs').hidden) { event.preventDefault(); selectTab(tab, true); }
   else if (event.key === 'j' || event.key === 'k') { event.preventDefault(); moveStep(event.key === 'j' ? 1 : -1); }
   else if (event.key === 'Backspace' && state.stack.length) { event.preventDefault(); returnToCaller(); }

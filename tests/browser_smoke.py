@@ -31,11 +31,19 @@ for source in (ROOT/'example').glob('*.py'): shutil.copyfile(source,fixture_root
     'class Service:\n'
     '    def __init__(self, repo: Repo):\n        self.repo = repo\n'
     '    def entry(self):\n        return self.repo.get()\n'
+    'def invoke_entry():\n    service = Service(Repo())\n    if service:\n        return service.entry()\n    return None\n'
     'def conditional(flag):\n    return Repo().get() if flag else 0\n'
     'def unreachable():\n    return 0\n    Repo().get()\n'
     'def built():\n    return Repo()\n'
 )
 (fixture_root/'test_oo_review.py').write_text('from oo_review import Repo, Service\ndef test_entry_reads_repo():\n    assert Service(Repo()).entry() == 1\n')
+(fixture_root/'dataflow_dashboard.py').write_text((ROOT/'tests'/'fixtures'/'dataflow_dashboard.py').read_text())
+(fixture_root/'many_models.py').write_text(
+    ''.join(f'class Model{i}:\n    field_{i}: int\n' for i in range(85)) +
+    'def use_models():\n    return (' + ', '.join(f'Model{i}' for i in range(85)) + ')\n')
+dashboard_template=fixture_root/'templates'/'dashboard.html'
+dashboard_template.parent.mkdir()
+dashboard_template.write_text('<h1>{{ stats.total_projects }}</h1>\n{% for project in recent_projects %}\n<p>{{ project.task_count }}</p>\n{% endfor %}\n<script>apiFetch("/agents/usage")</script>\n')
 (fixture_root/'pyproject.toml').write_text('[project.scripts]\ndemo="cli_demo:main"\n')
 change_review='--changes' in sys.argv
 if change_review:
@@ -127,9 +135,9 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             checks['changed_files_and_unassessed_constant_visible']=js("document.querySelector('[data-category=files]').textContent.includes('constants.py') && document.querySelector('[data-category=unassessedChanges]').textContent.includes('constants.py')")
             js("[...document.querySelectorAll('[data-category=unassessedChanges] .change-record')].find(r=>r.textContent.includes('Working source')&&r.textContent.includes('constants.py')).querySelector('button').click()")
             for _ in range(100):
-                if js("document.querySelector('#sourceCode').textContent.includes('FEE = 2')"):break
+                if js("document.querySelector('[data-category=unassessedChanges] .change-source-excerpt')?.textContent.includes('FEE = 2')"):break
                 time.sleep(.02)
-            checks['unassessed_change_opens_exact_source']=js("document.querySelector('#sourceCode').textContent.includes('FEE = 2')")
+            checks['unassessed_change_opens_exact_source']=js("document.querySelector('[data-category=unassessedChanges] .change-source-excerpt')?.textContent.includes('FEE = 2')")
             for _ in range(100):
                 if js("document.querySelectorAll('[data-category=changedMethods] .change-record').length===25"):break
                 time.sleep(.02)
@@ -207,6 +215,14 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             if js("document.querySelectorAll('#flow .operation').length===40"):break
             time.sleep(.02)
         checks['method_continuation']=js("document.querySelectorAll('#flow .operation').length===40")
+        for _ in range(100):
+            if js("document.querySelectorAll('#dataflowOverview .dataflow-item').length>20"):break
+            time.sleep(.02)
+        js("(()=>{const item=[...document.querySelectorAll('#dataflowOverview .dataflow-item')].at(-1);item.scrollIntoView({block:'center'});item.click()})()")
+        for _ in range(100):
+            if js("document.querySelector('#dataflowTrace h2')!==null"):break
+            time.sleep(.02)
+        checks['selected_trace_visible_above_long_flow']=js("(()=>{const trace=document.querySelector('#dataflowTrace'),overview=document.querySelector('#dataflowOverview'),box=trace.getBoundingClientRect();return trace.nextElementSibling===overview && document.activeElement===trace && box.top>=0 && box.top<innerHeight && box.bottom>0 && trace.clientHeight<=540 && getComputedStyle(trace).overflowY==='auto'})()")
         js("(async()=>{const result=await api('/api/symbols',{q:'progressive',snapshot:model.snapshotId});const scope=result.symbols.items.find(s=>s.name==='progressive');const start=performance.now();await chooseScope(scope.id);window.__methodAndSourceMs=performance.now()-start;window.__workflowStart=performance.now();await showSelectedWorkflow();window.__firstWorkflowMs=performance.now()-window.__workflowStart;})()")
         checks['workflow_first_page_only']=js("workflowState.profile.stages.length===20 && workflowState.profile.nextCursor===20 && workflowState.profile.totalStages===66")
         js("loadMoreWorkflow()")
@@ -284,9 +300,9 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             checks['configuration_deletion_visible_as_unassessed']=js("document.querySelector('[data-category=files]').textContent.includes('pyproject.toml') && document.querySelector('[data-category=unassessedChanges]').textContent.includes('pyproject.toml')")
             js("[...document.querySelectorAll('[data-category=unassessedChanges] .change-record')].find(r=>r.textContent.includes('pyproject.toml')&&r.textContent.includes('Baseline')).querySelector('button').click()")
             for _ in range(100):
-                if js("document.querySelector('#sourceCode').textContent.includes('[project.scripts]')"):break
+                if js("document.querySelector('[data-category=unassessedChanges] .change-source-excerpt')?.textContent.includes('[project.scripts]')"):break
                 time.sleep(.02)
-            checks['configuration_baseline_source_opens']=js("document.querySelector('#sourceCode').textContent.includes('[project.scripts]')")
+            checks['configuration_baseline_source_opens']=js("document.querySelector('[data-category=unassessedChanges] .change-source-excerpt')?.textContent.includes('[project.scripts]')")
         js("(async()=>{const rows=await api('/api/symbols',{q:'Service.entry',snapshot:model.snapshotId});window.__ooEntry=rows.symbols.items.find(s=>s.name==='entry').id;await chooseScope(window.__ooEntry);await showSelectedWorkflow();window.__ooStage=workflowState.profile.stages.find(s=>s.status==='possible'&&s.targetLabels&&Object.values(s.targetLabels).some(n=>n.endsWith('Repo.get')));await selectWorkflowStage(window.__ooStage.id);})()")
         checks['possible_workflow_target_requires_explicit_open']=js("state.scope===window.__ooEntry && [...document.querySelectorAll('.workflow-candidates button')].some(b=>b.textContent.includes('Repo.get'))")
         checks['receiver_candidate_provenance_visible']=js("[...document.querySelectorAll('#workflowContext button')].some(b=>b.textContent.includes('Why is this receiver a candidate?')) && window.__ooStage.candidateEvidence?.some(p=>p.evidenceId && p.label && p.span)")
@@ -304,7 +320,38 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         for _ in range(100):
             if js("document.querySelector('#testsCount').textContent==='1'"):break
             time.sleep(.02)
-        checks['tab_counts_and_summary']=js("document.querySelector('#testsCount').textContent==='1' && document.querySelector('#methodSummary').textContent.startsWith('Takes no input.') && document.querySelector('#tab-steps').getAttribute('aria-selected')==='true' && document.querySelector('#testsPanel').hidden")
+        checks['tab_counts_and_summary']=js("document.querySelector('#testsCount').textContent==='1' && document.querySelector('#methodSummary').textContent.startsWith('Takes no input.') && document.querySelector('#tab-dataflow').getAttribute('aria-selected')==='true' && document.querySelector('#testsPanel').hidden")
+        for _ in range(100):
+            if js("document.querySelector('#dataflowOverview .dataflow-group')!==null"):break
+            time.sleep(.02)
+        checks['dataflow_and_models_paired']=js("!document.querySelector('#dataflowPanel').hidden && document.querySelector('#dataModelPane').getBoundingClientRect().width>0 && document.querySelector('#dataModelContent .data-model-item')!==null")
+        checks['method_source_bounded']=js("document.querySelector('#sourceCode').textContent.includes('def get') && !document.querySelector('#sourceCode').textContent.includes('class Service')")
+        checks['related_tests_initially_collapsed']=js("!document.querySelector('#relatedTests').open")
+        js("document.querySelector('#relatedTests').open=true")
+        for _ in range(100):
+            if js("document.querySelector('#relatedTestsContent .related-test')!==null"):break
+            time.sleep(.02)
+        js("document.querySelector('#relatedTestsContent .related-test').open=true")
+        for _ in range(100):
+            if js("document.querySelector('#relatedTestsContent .related-test .code-line')!==null"):break
+            time.sleep(.02)
+        checks['related_test_bounded_under_code']=js("document.querySelector('#relatedTestsContent .related-test .code-window').textContent.includes('def test_entry_reads_repo') && !document.querySelector('#relatedTestsContent .related-test .code-window').textContent.includes('def get')")
+        js("(async()=>{document.querySelector('#relatedTests').open=false;const flow=await api('/api/dataflow',{symbol:state.scope,snapshot:model.snapshotId,limit:50});await selectFlowNode(state.scope,flow.nodes[0]);document.querySelector('#fullCode').click();})()")
+        checks['full_width_code_keeps_method_boundary']=js("document.querySelector('.workspace').classList.contains('code-full') && document.querySelector('#sourceCode').textContent.includes('def get') && !document.querySelector('#sourceCode').textContent.includes('class Service')")
+        js("document.querySelector('#restoreCode').click()")
+        checks['analysis_restored_with_models']=js("!document.querySelector('.workspace').classList.contains('code-full') && document.querySelector('#tab-dataflow').getAttribute('aria-selected')==='true' && document.querySelector('#dataModelPane').getBoundingClientRect().width>0 && selectedNode!==null && document.querySelector('#dataModelContent .data-model-item.focused')!==null")
+        js("window.__codeWidthBefore=document.querySelector('#codeResize').getAttribute('aria-valuenow');document.querySelector('#codeResize').focus();document.querySelector('#codeResize').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))")
+        checks['keyboard_code_resize']=js("document.querySelector('#codeResize').getAttribute('aria-valuenow')!==window.__codeWidthBefore")
+        js("document.querySelector('#resetCodeWidth').click();document.querySelector('#sidebarToggle').click()")
+        checks['sidebar_can_collapse']=js("document.querySelector('.workspace').classList.contains('sidebar-collapsed') && document.querySelector('#sidebarToggle').textContent.includes('Show sidebar')")
+        checks['sidebar_collapse_preserves_split']=js("(()=>{const bounds=s=>document.querySelector(s).getBoundingClientRect(),review=bounds('.review'),split=bounds('#codeResize'),source=bounds('.source-panel');return bounds('#repositoryNavigator').width===0 && review.width>300 && source.width>250 && split.width<=12 && Math.abs(review.right-split.left)<2 && Math.abs(split.right-source.left)<2})()")
+        command('Emulation.setDeviceMetricsOverride',{'width':390,'height':850,'deviceScaleFactor':1,'mobile':True})
+        checks['sidebar_collapse_fills_narrow_workspace']=js("(()=>{const bounds=s=>document.querySelector(s).getBoundingClientRect(),workspace=bounds('.workspace'),review=bounds('.review'),source=bounds('.source-panel');return bounds('#repositoryNavigator').width===0 && Math.abs(review.top-workspace.top)<2 && Math.abs(review.bottom-source.top)<2 && Math.abs(source.bottom-workspace.bottom)<2 && document.documentElement.scrollWidth<=innerWidth})()")
+        command('Emulation.setDeviceMetricsOverride',{'width':1280,'height':900,'deviceScaleFactor':1,'mobile':False})
+        js("document.querySelector('#sidebarToggle').click();document.querySelector('#focusMode').click()")
+        checks['no_distraction_keeps_method']=js("document.querySelector('.workspace').classList.contains('no-distraction') && document.querySelector('#methodName').textContent==='Repo.get' && document.querySelector('#sourceCode').textContent.includes('def get')")
+        checks['no_distraction_preserves_split']=js("(()=>{const bounds=s=>document.querySelector(s).getBoundingClientRect(),review=bounds('.review'),split=bounds('#codeResize'),source=bounds('.source-panel');return bounds('#repositoryNavigator').width===0 && review.width>300 && source.width>250 && split.width<=12 && Math.abs(review.right-split.left)<2 && Math.abs(split.right-source.left)<2})()")
+        js("document.querySelector('#focusMode').click()")
         js("document.querySelector('#tab-tests').click()")
         for _ in range(100):
             if js("document.querySelector('#testsPanel .test-row')!==null"):break
@@ -319,7 +366,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         for _ in range(100):
             if js("document.querySelector('#methodName').textContent==='test_entry_reads_repo' && document.querySelector('#testsCount').textContent!==''"):break
             time.sleep(.02)
-        checks['new_method_opens_on_steps']=js("document.querySelector('#tab-steps').getAttribute('aria-selected')==='true' && document.querySelector('#tab-tests').textContent.startsWith('Exercises')")
+        checks['new_method_keeps_selected_view']=js("document.querySelector('#tab-tests').getAttribute('aria-selected')==='true' && document.querySelector('#tab-tests').textContent.startsWith('Exercises')")
         js("document.querySelector('#tab-tests').click()")
         for _ in range(100):
             if js("document.querySelector('#methodName').textContent==='test_entry_reads_repo' && document.querySelector('#testsPanel').textContent.includes('Service.entry')"):break
@@ -328,11 +375,37 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         # Opening a test selects it again for its workflow entry; the list must not reload.
         js("(async()=>{await selectWorkflowStage('entry');})()")
         checks['reselecting_method_keeps_tests']=js("performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/tests?symbol='+encodeURIComponent(state.scope))).length===1 && !document.querySelector('#testsPanel').hidden && document.querySelector('#testsPanel').textContent.includes('This test exercises')")
-        js("(async()=>{const rows=await api('/api/symbols',{q:'Repo.get',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.qualified==='Repo.get').id);document.querySelector('#tab-callers').click();})()")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'Repo.get',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.qualified==='Repo.get').id);selectTab('dataflow');const flow=await api('/api/dataflow',{symbol:state.scope,snapshot:model.snapshotId,limit:50});await selectFlowNode(state.scope,flow.nodes[0]);document.querySelector('#relatedTests').open=true;document.querySelector('.workspace').style.setProperty('--code-width','360px');document.querySelector('#tab-callers').click();})()")
         for _ in range(100):
             if js("document.querySelector('#callersPanel .test-row')!==null"):break
             time.sleep(.02)
         checks['callers_tab_lists_callers']=js("[...document.querySelectorAll('#callersPanel .test-name')].some(n=>n.textContent==='Service.entry') && document.querySelector('#callersPanel').textContent.includes('Probably calls')")
+        checks['caller_origin_state_prepared']=js("document.querySelector('#relatedTests').open && document.querySelector('.workspace').style.getPropertyValue('--code-width')==='360px' && selectedNode!==null && document.querySelector('#tab-callers').getAttribute('aria-selected')==='true'")
+        js("document.querySelector('#callersPanel .test-pick').click()")
+        for _ in range(100):
+            if js("document.querySelectorAll('#callerComparisonPanel .caller-side').length===2"):break
+            time.sleep(.02)
+        checks['caller_comparison_code_and_flow']=js("!document.querySelector('#callerComparisonPanel').hidden && document.querySelectorAll('#callerComparisonPanel .caller-side').length===2 && document.querySelector('#callerComparisonPanel').textContent.includes('Service.entry') && document.querySelector('#callerComparisonPanel').textContent.includes('Repo.get') && document.querySelectorAll('#callerComparisonPanel .caller-side .code-line').length>0")
+        js("document.querySelector('#callerComparisonPanel .caller-side .side-tabs button:nth-child(2)').click();document.querySelector('#callerComparisonPanel .caller-side .side-tabs button:nth-child(3)').click()")
+        checks['caller_comparison_side_local_views']=js("document.querySelector('#callerComparisonPanel .caller-side .side-tabs button:nth-child(2)').getAttribute('aria-pressed')==='true' && !document.querySelector('#callerComparisonPanel .caller-side .data-model-pane').hidden && document.querySelector('#callerComparisonPanel .caller-side:nth-child(2) .data-model-pane').hidden")
+        js("document.querySelector('#callerComparisonPanel .caller-side:nth-child(2) > button').click()")
+        for _ in range(100):
+            if js("document.querySelector('#callerComparisonPanel .caller-side:nth-child(2) .test-row')!==null"):break
+            time.sleep(.02)
+        checks['nested_caller_is_listed']=js("document.querySelector('#callerComparisonPanel .caller-side:nth-child(2) .test-row')?.textContent.includes('invoke_entry')")
+        js("document.querySelector('#callerComparisonPanel .caller-side:nth-child(2) .test-pick').click()")
+        for _ in range(100):
+            if js("document.querySelector('#callerComparisonPanel').textContent.includes('invoke_entry') && document.querySelector('#callerComparisonPanel .caller-side')?.textContent.includes('Service.entry')"):break
+            time.sleep(.02)
+        checks['nested_caller_comparison']=js("document.querySelector('#callerComparisonPanel').textContent.includes('invoke_entry') && document.querySelector('#callerComparisonPanel .caller-side')?.textContent.includes('Service.entry')")
+        checks['nested_branch_call_binding']=js("document.querySelector('#callerComparisonPanel .caller-binding')?.textContent.includes('service → self')")
+        js("document.querySelector('#callerComparisonPanel button').click()")
+        checks['nested_back_restores_prior_comparison']=js("document.querySelector('#callerComparisonPanel .caller-side:nth-child(1) h2')?.textContent.includes('Repo.get') && document.querySelector('#callerComparisonPanel .caller-side:nth-child(2) h2')?.textContent.includes('Service.entry') && !document.querySelector('#callerComparisonPanel .caller-side .data-model-pane').hidden")
+        js("document.querySelector('#callerComparisonPanel button').click()")
+        checks['caller_comparison_back_restores_view']=js("document.querySelector('#callerComparisonPanel').hidden && document.querySelector('#methodName').textContent==='Repo.get' && document.querySelector('#tab-callers').getAttribute('aria-selected')==='true' && document.querySelector('#relatedTests').open && document.querySelector('.workspace').style.getPropertyValue('--code-width')==='360px' && selectedNode!==null")
+        js("document.querySelector('#tab-dataflow').click()")
+        checks['caller_back_keeps_value_trace']=js("document.querySelector('#dataflowTrace').textContent.includes('Trace') && document.querySelector('#dataModelContent .data-model-item.focused')!==null")
+        js("document.querySelector('#resetCodeWidth').click()")
         js("document.body.focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'s',bubbles:true}))")
         checks['keyboard_tab_shortcut']=js("document.querySelector('#tab-steps').getAttribute('aria-selected')==='true' && !document.querySelector('#stepsPanel').hidden")
         js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'j',bubbles:true}))")
@@ -347,6 +420,28 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         checks['conditional_workflow_stage_marked']=js("[...document.querySelectorAll('.workflow-stage')].some(b=>b.textContent.includes('Runs only if'))")
         js("(async()=>{const rows=await api('/api/symbols',{q:'built',snapshot:model.snapshotId});window.__built=rows.symbols.items.find(s=>s.name==='built').id;await chooseScope(window.__built);await showSelectedWorkflow();const stage=workflowState.profile.stages.find(s=>s.construction);await selectWorkflowStage(stage.id);})()")
         checks['construction_does_not_open_class_body_as_call']=js("state.scope===window.__built && document.querySelector('#workflowContext').textContent.includes('Constructing an object') && document.querySelector('#workflowContext').textContent.includes('Go to Repo.__init__')")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'dashboard',snapshot:model.snapshotId});const scope=rows.symbols.items.find(s=>s.file==='dataflow_dashboard.py'&&s.name==='dashboard');await chooseScope(scope.id);selectTab('dataflow');})()")
+        for _ in range(100):
+            if js("document.querySelector('#dataModelContent').textContent.includes('description') && document.querySelector('#dataflowOverview').textContent.includes('project.task_count')"):break
+            time.sleep(.02)
+        checks['dashboard_complete_model_and_flow']=js("document.querySelector('#dataModelContent').textContent.includes('Project') && document.querySelector('#dataModelContent').textContent.includes('description') && document.querySelector('#dataModelContent').textContent.includes('Task') && document.querySelector('#dataflowOverview').textContent.includes('project.task_count')")
+        checks['dashboard_method_only_code']=js("document.querySelector('#sourceCode').textContent.includes('async def dashboard') && !document.querySelector('#sourceCode').textContent.includes('def edit_values')")
+        checks['dashboard_template_boundary']=js("document.querySelector('#dataflowOverview').textContent.includes('project.task_count') && document.querySelector('#dataflowOverview').textContent.includes('/agents/usage')")
+        js("(async()=>{const data=await api('/api/dataflow',{symbol:state.scope,snapshot:model.snapshotId,limit:50});const field=data.nodes.find(n=>n.name==='project.task_count'&&n.kind==='field');await selectFlowNode(state.scope,field);})()")
+        for _ in range(100):
+            if js("document.querySelector('#dataflowTrace').textContent.includes('project.task_count')"):break
+            time.sleep(.02)
+        checks['dashboard_field_trace_reaches_template']=js("document.querySelector('#dataflowTrace').textContent.includes('project.task_count') && document.querySelector('#dataflowTrace').textContent.includes('template')")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'use_models',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='use_models').id);selectTab('dataflow');})()")
+        for _ in range(100):
+            if js("document.querySelector('#dataModelContent .data-model-more')!==null"):break
+            time.sleep(.02)
+        checks['models_page_first_80']=js("document.querySelector('#dataModelContent').textContent.includes('Model0') && !document.querySelector('#dataModelContent').textContent.includes('Model84') && document.querySelector('#dataModelContent .data-model-more')!==null")
+        js("document.querySelector('#dataModelContent .data-model-more').click()")
+        for _ in range(100):
+            if js("document.querySelector('#dataModelContent').textContent.includes('Model84')"):break
+            time.sleep(.02)
+        checks['models_page_reaches_all_definitions']=js("document.querySelector('#dataModelContent').textContent.includes('Model84') && document.querySelectorAll('#dataModelContent .data-model-item').length>=85 && document.querySelector('#dataModelContent .data-model-more')===null")
         (fixture_root/'broken.py').write_text('def incomplete(:\n')
         js("load(true)")
         checks['parse_failure_prominent_and_retrievable']=js("!document.querySelector('#analysisStatus').hidden && document.querySelector('#analysisStatus').textContent.includes('1 analysis issue') && document.querySelector('#coveragePanel').textContent.includes('Analysis issues · 1')")

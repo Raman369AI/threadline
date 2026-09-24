@@ -31,6 +31,24 @@ single-process observations are diagnostic and not a latency guarantee:
 | OpenTelemetry | 1.161 s | 0.052 s | 63.7 MiB |
 | Pants | 26.001 s | 0.876 s | 760.7 MiB |
 
+The 2026-09-24 candidate reran all seven pinned cases from an offline cache;
+each passed its existing time and RSS budget. The new per-method graph is built
+only when requested. Its default bounds are 800 value nodes, 400 change events,
+800 edges, 80 referenced models per page, and three seconds of cooperative
+analysis time. Model pages have their own cursor; individual field lists are
+bounded and link to paged declaration source when omitted. The data-flow graph
+cache retains at most 32 entries or 16 MiB of serialized graph data.
+Deterministic source-span evidence IDs are validated against the retained
+snapshot, so graph eviction does not accumulate a separate evidence index.
+
+One read-only Dashboard check on a dirty external checkout (Git `ef7ebc8`,
+snapshot `9b195ccec7ca1c448209`) measured 0.410 s for a cold overview,
+0.205 s for a cold downstream trace, and 0.012 s for a cached overview. Two
+graph cache entries held 1.42 MiB serialized. The process peak RSS was 111.73
+MiB; `tracemalloc` started after source refresh and peaked at 9.49 MiB, so it
+does not measure the retained model. These are single diagnostic measurements
+on one mutable working tree, not product latency guarantees.
+
 Git baseline materialization was timed separately on three clean pinned checkouts,
 using the same source-root and exclusion options as the corpus. After analysis,
 `review_changes(..., base='HEAD')` took 0.722 seconds on Flask, 21.545 seconds on
@@ -81,6 +99,9 @@ acceptance thresholds or representative results for every repository.
 visible; it does not include symbol search latency. Two local Chromium runs on
 2026-09-23 measured 12.7 ms (ordinary smoke) and 14.2 ms (change-review smoke) for
 that fixture. These are single diagnostic observations, not latency guarantees.
+The 2026-09-24 method-first candidate measured 34.4 ms (ordinary smoke) and
+37.1 ms (change-review smoke) for the same selection metric; it now requests
+bounded method source and starts Data flow alongside the method view.
 
 Comparisons return at most 40 original lines per side in the browser. Source is pinned
 to the working and baseline snapshots; pages advance by relative line offset and do

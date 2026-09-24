@@ -1,7 +1,7 @@
 'use strict';
 // Related tests for the selected method, and a second code pane that shows a
 // test (or the code a test exercises) beside the method's own source.
-let testsRequest = 0, pairRequest = 0, testsShown = null;
+let testsRequest = 0, pairRequest = 0, testsShown = null, relatedRequest = 0, relatedId = null;
 const relationLabels = {direct:'Direct', route:'Route', indirect:'Indirect', name:'Name match'};
 
 function closePair() {
@@ -54,18 +54,18 @@ function renderTests(host, id, result, cursor) {
 }
 
 // kind: 'test' (a test of this method), 'subject' (code a test exercises), or 'caller'.
-function linkRow(row, kind) {
+function linkRow(row, kind, calledId=null) {
   const uncertain = row.status === 'possible';
   const item = el('div', 'test-row ' + (kind === 'test' ? row.relation : 'direct') + (uncertain ? ' uncertain' : ''));
-  const pick = button('', 'test-pick', () => showPair(row, kind, item));
-  pick.setAttribute('aria-label', `Show ${kind === 'test' ? 'test' : 'code of'} ${row.name}: ${row.reason}`);
+  const pick = button('', 'test-pick', () => kind === 'caller' ? openCallerComparison(row,calledId) : showPair(row, kind, item));
+  pick.setAttribute('aria-label', `${kind === 'caller' ? 'Compare caller' : 'Show '+(kind === 'test' ? 'test' : 'code of')} ${row.name}: ${row.reason}`);
   const top = el('span', 'test-top');
   top.append(el('span', 'test-badge', kind === 'test' ? relationLabels[row.relation] : certaintyLabel(row.status)));
   top.append(el('code', 'test-name', row.name));
   const reason = kind === 'caller' ? `Line ${row.callsite.start}` : row.reason;
   pick.append(top, el('span', 'test-reason', reason + (uncertain && kind === 'test' ? ' · probably' : '')), el('span', 'test-file', `${row.file}:${row.line}`));
-  const open = button('Go to →', 'test-open', () => startReview(row.id));
-  open.setAttribute('aria-label', `Go to ${row.name}`);
+  const open = button(kind === 'caller' ? 'Compare →' : 'Go to →', 'test-open', () => kind === 'caller' ? openCallerComparison(row,calledId) : startReview(row.id));
+  open.setAttribute('aria-label', `${kind === 'caller'?'Compare':'Go to'} ${row.name}`);
   item.append(pick, open);
   return item;
 }
@@ -102,3 +102,55 @@ async function showPair(row, kind, item) {
 }
 
 $('#pairClose').addEventListener('click', () => { const active = $('.tab-panel .test-row.active .test-pick'); closePair(); active?.focus(); });
+
+function prepareRelatedTests(id) {
+  relatedId=id; ++relatedRequest;
+  $('#relatedTests').open=false;
+  $('#relatedTestsContent').replaceChildren();
+  $('#relatedTestsCount').textContent='';
+}
+
+async function loadRelatedTests(id,cursor=0) {
+  const request=++relatedRequest,captured=model,host=$('#relatedTestsContent');
+  if(cursor===0)host.replaceChildren(el('p','source-peek','Finding related tests…'));
+  try{
+    const result=await api('/api/tests',{symbol:id,snapshot:captured.snapshotId,cursor,limit:20});
+    if(request!==relatedRequest||captured!==model||relatedId!==id||state.scope!==id)return;
+    if(cursor===0){
+      host.replaceChildren();
+      $('#relatedTestsCount').textContent=result.items.total?'· '+result.items.total:'';
+      $('#relatedTests').firstElementChild.firstChild.textContent=result.role==='test'?'Related code ':'Related tests ';
+      if(!result.items.total)host.append(el('p','source-peek',result.role==='test'?'No linked code was found.':'No related test was found in the indexed source. A link does not prove a test ran or covered every path.'));
+    }
+    host.querySelector('.tests-more')?.remove();
+    for(const row of result.items.items)host.append(relatedTestItem(row,result.role==='test'));
+    if(result.items.nextCursor!==null){
+      const more=button('Show more related tests','quiet-button tests-more',()=>loadRelatedTests(id,result.items.nextCursor));host.append(more);
+    }
+  }catch(error){
+    if(request!==relatedRequest||captured!==model)return;
+    host.replaceChildren(el('p','error',error.message),button('Retry','quiet-button',()=>loadRelatedTests(id,cursor)));
+  }
+}
+
+function relatedTestItem(row,isTest){
+  const item=el('details','related-test');
+  item.append(el('summary','',`${row.name} · ${row.file}:${row.line}`),el('span','test-reason',`${row.reason} · ${row.status==='possible'?'possible link':'source-backed link'}; execution and path coverage are not measured.`));
+  const code=el('div','code-window wrap-code');code.setAttribute('role','region');code.setAttribute('aria-label',`${isTest?'Related method':'Related test'} ${row.name} source`);code.tabIndex=0;item.append(code);
+  let loaded=false;
+  item.addEventListener('toggle',async()=>{
+    if(!item.open||loaded)return;
+    const captured=model;code.replaceChildren(el('p','source-peek','Loading bounded source…'));
+    try{
+      const source=await boundedMethodLines(row.id,captured.snapshotId);
+      if(captured!==model||!item.isConnected)return;
+      code.replaceChildren(...source.rows.map(line=>codeLine(line.number,line.text,Boolean(row.callsite&&line.number>=row.callsite.start&&line.number<=row.callsite.end))));
+      loaded=true;
+    }catch(error){if(captured===model&&item.isConnected)code.replaceChildren(el('p','error',error.message),button('Retry','quiet-button',()=>{item.open=false;item.open=true;}));}
+  });
+  return item;
+}
+
+$('#relatedTests').addEventListener('toggle',()=>{
+  if($('#relatedTests').open && relatedId===state.scope && !$('#relatedTestsContent').childElementCount)loadRelatedTests(state.scope);
+});

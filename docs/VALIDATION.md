@@ -5,6 +5,36 @@
 The record below describes the 2026-09-14 validation of commit `8c9d088`, not the
 current checkout. [That CI run](https://github.com/Raman369AI/threadline/actions/runs/34922515651) passed. The current candidate has local checks recorded below; its cross-platform matrix and three first-time reviewer sessions remain pending.
 
+## Method data-flow candidate — 2026-09-24
+
+The current checkout passed 150 Python unit tests, the separate 23-case curated
+semantic corpus (zero false-supported cases; ten unresolved), syntax checks for
+all bundled JavaScript files, normal and Git-change Chromium browser smokes,
+and 62 Chrome accessibility checks with zero axe violations across 24 audited
+states. A clean wheel installed outside the checkout and passed CLI, loopback
+server, and bundled-asset smoke checks. All seven pinned public repositories
+passed source-only validation from an offline cache under their existing
+time/RSS budgets. The repeatable synthetic memory profile also completed;
+diagnostic numbers are in [performance and resource budgets](PERFORMANCE.md).
+
+The mutable Dashboard checkout was read without executing target code. At Git
+`ef7ebc8` with a dirty working tree, the full-repository source snapshot
+`56f71c4097d229b2252a` indexed 103 Python files. The Dashboard produced an
+untruncated flow; `project.task_count` traced from its method assignment to a
+possible use in the retained `dashboard.html`. Each of the four literal `stats`
+keys traced to its matching template use without reaching sibling statistics.
+The method-only Code view, complete indexed Project and Task definitions, and
+five source-linked test references were verified in Chrome on the local review
+server; the target tests were not run.
+Follow-up browser checks at 1440, 800, and 390 pixels verified that hiding the
+sidebar gives its width to the review and code panes. The Data models pane shows
+the indexed definitions first, with external types and named method data in
+separate collapsed groups.
+The template's `/agents/usage` fetch remained a separate later browser request.
+The frozen fixture covers the same paths for repeatable regressions. The
+Linux/macOS matrix, native Safari, and uncoached reader and assistive-technology
+sessions remain release gates; this local evidence does not assert their outcome.
+
 ## Implementation candidate — 2026-09-23
 
 The implementation candidate passed 109 Python tests, the standalone 23-case curated

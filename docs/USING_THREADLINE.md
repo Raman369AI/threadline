@@ -52,15 +52,41 @@ No target-project installation or configuration is needed. Maintainers can follo
 
 ## Read a method
 
-Each selected function or method opens with its name, file and line, and a plain summary built from its source, for example *"Takes project. Creates Project and Stage, calls seed_default_policies and can raise HTTPException. Returns ProjectResponse."* Three tabs follow, each with a count:
+The selected method's name stays above its views:
 
-- **Steps**: the method's statements. Select one to see its code on the right.
-- **Tests**: tests linked to the method (see below).
-- **Callers**: definitions in the analyzed source whose calls lead here. Select one to see the call beside this code.
+- **Data flow** shows inputs, newly created or changed values, later uses, and outputs. Select a value to trace its origins and uses. Unknown results or effects stop at a labeled boundary.
+- **Data models** sit beside Data flow or Steps. Indexed model definitions come first and retain every indexed field, including fields the method does not use. External types have a separate compact group. Expand **Method data** to inspect named parameters, locals, assigned fields, added keys, and mutations; transient call results and joins stay in Data flow. A field assigned in the method is distinguished from one declared on the model.
+- **Steps** retains the line-by-line source explanation and branch controls.
+- **Code** shows only the selected function or method, including its signature and decorators. Expand it to the available width, or show it beside the analysis and resize its pane. The source boundary stays at that method even when Code fills the workspace.
+- **Tests** and **Callers** remain available as separate views. Related tests also expand beneath the method code.
 
-Calls are labeled **Calls** (one source target), **Probably calls** (a likely target that inheritance, decorators, or reassignment could change), **Library** (outside the repository), or **Can't tell** (decided at runtime). Probable links use dashed outlines. The **?** next to *Source only · not executed* opens this guide and the keyboard shortcuts.
+The top of the method view stays compact; details remain in the selected view.
+**No-distraction** hides the left navigator, and a separate control collapses
+or restores that sidebar. Both keep the selected method and trace in place.
 
-Selecting anything shows its code; **Go to →** opens that method. The path bar above the title lists how you got there; select any earlier method, or **← Back to caller**, to return. Keyboard: <kbd>/</kbd> search, <kbd>j</kbd>/<kbd>k</kbd> next or previous step, <kbd>s</kbd>/<kbd>t</kbd>/<kbd>c</kbd> switch tabs, <kbd>Backspace</kbd> back, <kbd>?</kbd> help.
+For a route such as `dashboard(request: Request, db=Depends(get_db))`, `request`
+and `db` are declared inputs. `Project` in `select(Project)` is a reference to a
+model definition, not a Project record entering the method. Query results and
+their rows appear only as source-backed possible values. Assigning
+`project.task_count` in a loop is shown as a possible object-state change even
+when the indexed `Project` class has no such declared field; source alone does
+not prove the field was absent beforehand. A literal
+`templates.TemplateResponse(..., "dashboard.html", {"recent_projects": ...})` can link
+the context key to a retained template candidate when its provider is visible
+in indexed source. A later
+`apiFetch('/agents/usage')` in that template is a separate browser request,
+not another output of the Python method.
+
+Calls are labeled **Calls** (one source target), **Probably calls** (a likely target that inheritance, decorators, or reassignment could change), **Library** (outside the repository), or **Can't tell** (decided at runtime). Probable links use dashed outlines. The **?** next to *Source only · not executed* opens help and keyboard shortcuts.
+
+Following a call opens the target method with a path back. Selecting a caller
+compares the current method and caller side by side: each has its own bounded
+code and Data flow, with the callsite and method entry highlighted. Open Data
+models inside either side when needed. **Back** restores the prior method,
+view, trace, code position, and layout. Caller comparison is separate from Git
+before/after comparison. Keyboard: <kbd>/</kbd> search, <kbd>j</kbd>/<kbd>k</kbd>
+next or previous step, <kbd>Backspace</kbd> back, <kbd>?</kbd> help. View and
+resize controls can also be reached by Tab.
 
 ## See related tests
 
@@ -71,7 +97,12 @@ The **Tests** tab names each test and why it is linked:
 - **Indirect**: the test reaches the method through up to three other calls; the row shows the chain.
 - **Name match**: the test name contains the method name, but no call was linked.
 
-Links that depend on a probable call are labeled **probably**. Select a row to show the test source under the method source, with the linking call highlighted. **Go to →** reviews the test's own flow. When a test is selected, the tab becomes **Exercises** and lists the methods the test calls, including those reached through helpers in test files.
+Links that depend on a probable call are labeled **probably**. The **Related
+tests** section below Code is collapsed until opened; each linked test expands
+to that test's function or method, rather than its whole file. The Tests view
+continues to show the relationship and offers **Go to →** to review the test's
+own flow. When a test is selected, the tab becomes **Exercises** and lists the
+methods the test calls, including those reached through helpers in test files.
 
 Tests are found in `test_*.py` and `*_test.py` files and in `tests/` or `test/` directories. They must be inside the analyzed source roots. Threadline does not run tests or measure coverage; a linked test is not evidence that a branch is exercised.
 
@@ -84,6 +115,10 @@ threadline review /path/to/git-repository --base HEAD
 ```
 
 Open the **Changes** view for paged lists of changed files, edits outside methods, changed methods, moved methods, previous methods, current callers, baseline callers, and possible impact. A constant or import edit appears under changes outside methods even when no callable body overlaps it. Pure renames remain comparable under moved methods without claiming a body edit. Select a current method to inspect its source, choose **Compare before / after** to read both retained versions together, or choose **Trace workflow** to follow its calls. Comparisons support added and deleted definitions and file renames; ambiguous duplicate names or parse failures are shown without inventing a counterpart.
+
+Opening a file-level or non-method edit shows its exact bounded source excerpt
+inside Changes, with more lines available on demand. It does not replace the
+selected method's Code view with a whole file.
 
 **Open baseline** shows the retained previous source. The baseline banner includes **Return to change review**. Baseline callers preserve historical source-linked calls to changed or deleted definitions; they do not establish that those calls still resolve in the working tree. Possible calls remain separate from known relationships.
 
@@ -112,10 +147,29 @@ threadline snapshot /path/to/python-repository --output /tmp/threadline-review.j
 threadline symbols --session /tmp/threadline-review.json --query create_order
 threadline workflow --session /tmp/threadline-review.json --entrypoint create_order --limit 20
 threadline method --session /tmp/threadline-review.json --symbol create_order
+threadline dataflow --session /tmp/threadline-review.json --symbol create_order --limit 50
 threadline scope --session /tmp/threadline-review.json --symbol create_order --shallow
 threadline diagnostics --session /tmp/threadline-review.json --category errors
 threadline source --session /tmp/threadline-review.json --evidence EVIDENCE_ID
 ```
+
+The `dataflow` result lists method inputs, versioned values, source-ordered
+changes, outputs, model references, source gaps, and separately labeled template
+uses. Use a returned node ID to follow one value in either direction:
+
+```bash
+threadline dataflow --session /tmp/threadline-review.json --symbol create_order --node n12 --direction upstream
+threadline dataflow --session /tmp/threadline-review.json --symbol create_order --node n12 --direction downstream
+```
+
+On a live repository, pin `--snapshot ID` for a node trace or a continued page.
+`--detail references` keeps compact evidence IDs that can be retrieved with
+`threadline source --evidence ID`; a saved session keeps that source available
+after the working tree changes. `--cursor` and `--limit` page the change events;
+`--model-cursor` pages referenced model definitions independently when a method
+has more than 80. Both continued queries require the same live snapshot ID.
+Node and edge identities stay stable across those pages. Node IDs belong to
+one method graph and snapshot, so choose a node from that method's result.
 
 Use the `snapshotId` from the first response as `--snapshot ID` on live follow-up commands. A live request with `--cursor` greater than zero, a source `--evidence` ID or `--start` line beyond 1, a branch `--operation` ID, or a positional scope ID requires `--snapshot ID`; a mismatch after a source edit fails explicitly. Plain qualified-name first-page queries and initial file-source queries need no snapshot argument. A saved `--session` keeps its source and evidence fixed even if the working tree changes and needs no repeated `--snapshot`. Live change pages require a saved session because a Git base such as `HEAD` can move while the working source snapshot remains the same. `--cursor` and `--limit` page symbols, methods, scopes, branch arms, diagnostics, workflows, and change categories. A branch query uses `--symbol`, `--operation`, and `--arm`; the operation and arm come from a scope result. A source query accepts an `--evidence` ID or `--file` with optional `--start` and `--end` lines. The source result identifies any truncation and its next line.
 

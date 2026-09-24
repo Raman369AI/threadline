@@ -24,7 +24,7 @@ CHANGE_CATEGORIES = (
 )
 COMMANDS = {
     "review", "snapshot", "summary", "inspect", "symbols", "workflow",
-    "method", "scope", "branch", "source", "diagnostics", "changes",
+    "method", "scope", "branch", "source", "diagnostics", "changes", "dataflow",
 }
 
 
@@ -113,6 +113,15 @@ def _parser() -> JSONArgumentParser:
     method = sub.add_parser("method", help="flattened method operations")
     _query_arguments(method)
     method.add_argument("--symbol", required=True)
+
+    dataflow = sub.add_parser("dataflow", help="paged method values, changes, and optional value trace")
+    _query_arguments(dataflow)
+    dataflow.add_argument("--symbol", required=True)
+    dataflow.add_argument("--node", help="data-flow node ID to trace")
+    dataflow.add_argument("--direction", choices=["both", "upstream", "downstream"], default="both")
+    dataflow.add_argument("--model-cursor", type=int, default=0,
+                          help="offset into referenced model definitions")
+    dataflow.add_argument("--detail", choices=["full", "references"], default="full")
 
     scope = sub.add_parser("scope", help="paged scope statements and branch controls")
     _query_arguments(scope)
@@ -217,6 +226,12 @@ def _envelope(
     operation: str, model: dict[str, Any], result: dict[str, Any], *, detail: str = "full",
 ) -> ResponseEnvelope:
     pages = _pages(result)
+    if operation == 'dataflow':
+        pages['models'] = {
+            'total': result['modelTotal'],
+            'nextCursor': result['nextModelOffset'],
+            'omitted': max(0, result['modelTotal'] - result['modelCursor'] - len(result['models'])),
+        }
     return {
         "schemaVersion": model["schemaVersion"],
         "operation": operation,
@@ -348,6 +363,12 @@ def _query(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
             "--snapshot is required for a later page from a live project; "
             "use the snapshotId from the first page or a saved --session"
         )
+    if (not args.session and args.command == 'dataflow'
+            and args.model_cursor > 0 and not args.snapshot):
+        raise ThreadlineError(
+            '--snapshot is required for a later model page from a live project; '
+            'use the overview result\'s snapshotId or a saved --session'
+        )
     if not args.session and not args.snapshot:
         if args.command == "source" and args.evidence:
             raise ThreadlineError(
@@ -363,6 +384,11 @@ def _query(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
             raise ThreadlineError(
                 "--snapshot is required to follow a branch operation ID in a live project; "
                 "use the scope result's snapshotId or a saved --session"
+            )
+        if args.command == "dataflow" and args.node:
+            raise ThreadlineError(
+                "--snapshot is required to trace a data-flow node ID in a live project; "
+                "use the overview result's snapshotId or a saved --session"
             )
     store = _store(args)
     model = _selected_model(store, args.snapshot)
@@ -385,6 +411,11 @@ def _query(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
     elif args.command == "method":
         selected = _resolve_query_symbol(model, args.symbol, args)
         result = store.get_method(selected["id"], snapshot_id=snapshot_id, **page)
+    elif args.command == "dataflow":
+        selected = _resolve_query_symbol(model, args.symbol, args)
+        result = store.get_dataflow(selected["id"], snapshot_id=snapshot_id,
+                                    node_id=args.node, direction=args.direction,
+                                    model_cursor=args.model_cursor, **page)
     elif args.command == "scope":
         selected = _resolve_query_symbol(model, args.symbol, args)
         result = store.get_scope(selected["id"], snapshot_id=snapshot_id, shallow=args.shallow, **page)
@@ -414,7 +445,7 @@ def _query(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
     else:
         raise ThreadlineError(f"unknown operation: {args.command}")
     if getattr(args, "detail", "full") == "references" and (
-        args.command == "workflow" or args.command == "inspect" and args.entrypoint
+        args.command in ("workflow", "dataflow") or args.command == "inspect" and args.entrypoint
     ):
         result = _evidence_references(result)
     return model, result

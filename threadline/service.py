@@ -2,21 +2,30 @@
 from __future__ import annotations
 
 import copy
+import base64
 import hashlib
 import json
+import re
 import threading
 from collections import OrderedDict, deque
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .analyzer import analyze, AnalysisLimitError
+from .templates import attach_template_assets
 from .workflows import generic_workflow, suggested_entrypoints, workflow_catalog
 from . import overview, testlinks
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 MAX_PAGE = 100
 MAX_WORKFLOW_CACHE_BYTES = 16 * 1024 * 1024
 MAX_WORKFLOW_CACHE_ENTRIES = 32
+MAX_DATAFLOW_CACHE_BYTES = 16 * 1024 * 1024
+MAX_DATAFLOW_CACHE_ENTRIES = 32
+MAX_TEMPLATE_RESPONSE_LINKS = 20
+MAX_TEMPLATE_RESPONSE_CANDIDATES = 10
+MAX_TEMPLATE_RESPONSE_USES = 80
+MAX_TEMPLATE_RESPONSE_FETCHES = 30
 CHANGE_CATEGORIES = ('files', 'changedMethods', 'previousMethods', 'renamedMethods',
                      'previousRenamedMethods', 'unassessedChanges', 'knownCallers',
                      'baselineCallers', 'possibleImpact')
@@ -41,6 +50,8 @@ def _snapshot_id(model: dict[str, Any]) -> str:
     digest.update(SCHEMA_VERSION.encode())
     digest.update(model.get("configuration", "").encode())
     digest.update(json.dumps(model.get('configurationManifest', {}), sort_keys=True, ensure_ascii=True).encode())
+    digest.update(json.dumps(model.get('templateManifest', {}), sort_keys=True, ensure_ascii=True).encode())
+    digest.update(json.dumps(model.get('templateGaps', []), sort_keys=True, ensure_ascii=True).encode())
     digest.update(json.dumps(model.get("analysisOptions", {}), sort_keys=True).encode())
     for name, info in sorted(model["files"].items()):
         digest.update(name.encode("utf-8", "surrogatepass"))
@@ -60,6 +71,8 @@ def _snapshot_id(model: dict[str, Any]) -> str:
 def _source_info(model: dict[str, Any], file: str) -> dict[str, Any] | None:
     if file in model['files']:
         return model['files'][file]
+    if file in model.get('templateAssets', {}):
+        return model['templateAssets'][file]
     if file != 'pyproject.toml':
         return None
     manifest = model.get('configurationManifest')
@@ -95,6 +108,92 @@ def add_evidence_ids(value: Any) -> Any:
     return result
 
 
+def _portable_evidence_id(span: dict[str, Any]) -> str:
+    """Encode a source span so later reads do not require a growing index."""
+    fields = [span['file'], span['start'], span['end'],
+              span.get('col', 0), span.get('endCol', 0), span['hash']]
+    raw = json.dumps(fields, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    return 'span1.' + base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+
+
+def _portable_evidence_span(identifier: str) -> dict[str, Any]:
+    encoded = identifier.removeprefix('span1.')
+    if not encoded or len(encoded) > 4096:
+        raise ThreadlineError('evidence ID is invalid')
+    try:
+        raw = base64.b64decode(encoded + '=' * (-len(encoded) % 4),
+                               altchars=b'-_', validate=True)
+        fields = json.loads(raw.decode('utf-8'))
+    except (ValueError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ThreadlineError('evidence ID is invalid') from exc
+    if (not isinstance(fields, list) or len(fields) != 6
+            or not isinstance(fields[0], str) or not fields[0]
+            or any(type(value) is not int or value < 0 for value in fields[1:5])
+            or fields[1] < 1 or fields[2] < fields[1]
+            or not isinstance(fields[5], str)
+            or re.fullmatch(r'[0-9a-f]{64}', fields[5]) is None):
+        raise ThreadlineError('evidence ID is invalid')
+    return dict(zip(('file', 'start', 'end', 'col', 'endCol', 'hash'), fields))
+
+
+def _portable_evidence_ids(value: Any) -> Any:
+    result = copy.deepcopy(value)
+
+    def visit(item: Any) -> None:
+        if isinstance(item, dict):
+            span = item.get('span')
+            if isinstance(span, dict) and {'file', 'hash', 'start', 'end'} <= span.keys():
+                item['evidenceId'] = _portable_evidence_id(span)
+            for child in item.values():
+                visit(child)
+        elif isinstance(item, list):
+            for child in item:
+                visit(child)
+
+    visit(result)
+    return result
+
+
+def _template_summary(model: dict[str, Any], scope_id: str,
+                      flow_links: list[dict[str, Any]]) -> dict[str, Any]:
+    """Show direct, bounded template candidates without returning asset source."""
+    matches = [link for link in model.get('templateLinks', []) if link.get('scope') == scope_id]
+    omitted = max(0, len(matches) - MAX_TEMPLATE_RESPONSE_LINKS)
+    links = []
+    relevant_files = {model['scopes'][scope_id]['file']}
+    truncated = False
+    for index, link in enumerate(matches[:MAX_TEMPLATE_RESPONSE_LINKS]):
+        row = {key: value for key, value in link.items()
+               if key not in ('candidates', 'contextUses', 'clientFetches')}
+        candidates = link.get('candidates', [])
+        context_uses = link.get('contextUses', [])
+        fetches = link.get('clientFetches', [])
+        row['candidates'] = candidates[:MAX_TEMPLATE_RESPONSE_CANDIDATES]
+        row['contextUses'] = context_uses[:MAX_TEMPLATE_RESPONSE_USES]
+        row['clientFetches'] = fetches[:MAX_TEMPLATE_RESPONSE_FETCHES]
+        flow_uses = flow_links[index].get('uses', []) if index < len(flow_links) else []
+        row['uses'] = flow_uses[:MAX_TEMPLATE_RESPONSE_USES]
+        row['omittedCandidates'] = max(0, len(candidates) - len(row['candidates']))
+        row['omittedContextUses'] = max(0, len(context_uses) - len(row['contextUses']))
+        row['omittedClientFetches'] = max(0, len(fetches) - len(row['clientFetches']))
+        row['omittedUses'] = max(0, len(flow_uses) - len(row['uses']))
+        omitted += (row['omittedCandidates'] + row['omittedContextUses']
+                    + row['omittedClientFetches'] + row['omittedUses'])
+        row['assets'] = []
+        for file in row['candidates']:
+            asset = model['templateAssets'][file]
+            relevant_files.add(file)
+            row['assets'].append({'file': file, 'hash': asset['hash'],
+                                  'lines': asset['lines'], 'truncated': asset['truncated']})
+            truncated |= asset['truncated']
+        links.append(row)
+    gaps = [gap for gap in model.get('templateGaps', [])
+            if not gap.get('file') or gap['file'] in relevant_files]
+    omitted += max(0, len(gaps) - 20)
+    return {'links': links, 'gaps': gaps[:20],
+            'truncated': bool(truncated or omitted), 'omitted': omitted}
+
+
 class SnapshotStore:
     """Keep bounded snapshots for one root and return detached query results.
 
@@ -114,13 +213,16 @@ class SnapshotStore:
         self._models: dict[str, dict[str, Any]] = {}
         self._order: deque[str] = deque()
         self.current_id: str | None = None
-        self._evidence = {}
-        self._registered_evidence = {}
+        self._evidence: dict[str, dict[str, dict[str, Any]]] = {}
+        self._registered_evidence: dict[str, dict[str, dict[str, Any]]] = {}
         self._evidence_lock = threading.Lock()
-        self._workflow_cache = OrderedDict()
+        self._workflow_cache: OrderedDict[tuple[str, str], tuple[dict[str, Any], int]] = OrderedDict()
         self._workflow_cache_bytes = 0
         self._workflow_lock = threading.Lock()
-        self._test_index = {}
+        self._dataflow_cache: OrderedDict[tuple[str, str, str | None, str, int], tuple[dict[str, Any], int]] = OrderedDict()
+        self._dataflow_cache_bytes = 0
+        self._dataflow_lock = threading.Lock()
+        self._test_index: dict[str, dict[str, Any]] = {}
         self._test_lock = threading.Lock()
 
     def refresh(self) -> dict[str, Any]:
@@ -128,6 +230,7 @@ class SnapshotStore:
             model = analyze(self.root, source_roots=self.source_roots, exclude=self.exclude)
         except (AnalysisLimitError, RecursionError) as exc:
             raise ThreadlineError(str(exc) or 'Source nesting exceeds analysis budget') from exc
+        attach_template_assets(model, self.root)
         snapshot_id = _snapshot_id(model)
         model["schemaVersion"] = SCHEMA_VERSION
         model["snapshotId"] = snapshot_id
@@ -169,6 +272,11 @@ class SnapshotStore:
                     if key[0] == expired:
                         _, size = self._workflow_cache.pop(key)
                         self._workflow_cache_bytes -= size
+            with self._dataflow_lock:
+                for cache_key in list(self._dataflow_cache):
+                    if cache_key[0] == expired:
+                        _, size = self._dataflow_cache.pop(cache_key)
+                        self._dataflow_cache_bytes -= size
 
     @property
     def current(self) -> dict[str, Any]:
@@ -245,7 +353,7 @@ class SnapshotStore:
             rows.sort(key=lambda row: (row['name'].split('.')[-1].startswith('__'), row['name'].casefold(), row['line']))
             return {'snapshotId': model['snapshotId'], 'module': {'name': module, 'file': file, 'total': len(members)},
                     'methods': add_evidence_ids(_page(rows, cursor, limit))}
-        modules = {}
+        modules: dict[str, dict[str, Any]] = {}
         for scope in scopes:
             row = modules.setdefault(scope['file'], {'file': scope['file'], 'name': scope['module'], 'total': 0})
             row['total'] += 1
@@ -495,11 +603,123 @@ class SnapshotStore:
                 "decorators": list(scope["decorators"]), "stats": copy.deepcopy(scope["stats"]),
                 "operations": add_evidence_ids(_page(operations, cursor, limit))}
 
+    def get_method_source(self, symbol_id: str, *, snapshot_id: str | None = None,
+                          cursor: int = 0, limit: int = 100) -> dict[str, Any]:
+        """Page only the selected callable's source, including decorators."""
+        model = self.model(snapshot_id)
+        scope = model['scopes'].get(symbol_id)
+        if scope is None or scope['kind'] in ('module', 'class'):
+            raise ThreadlineError('Select a callable definition in this snapshot')
+        span = scope['span']
+        source_lines = model['files'][scope['file']]['source'].splitlines()
+        lines = [{'number': number, 'text': source_lines[number - 1]}
+                 for number in range(span['start'], span['end'] + 1)]
+        return {'snapshotId': model['snapshotId'], 'id': symbol_id,
+                'name': scope['qualified'], 'file': scope['file'],
+                'span': copy.deepcopy(span), 'evidenceId': evidence_id(span),
+                'lines': _page(lines, cursor, limit)}
+
+    def get_dataflow(self, symbol_id: str, *, snapshot_id: str | None = None,
+                     node_id: str | None = None, direction: str = 'both',
+                     cursor: int = 0, limit: int = 25,
+                     model_cursor: int = 0) -> dict[str, Any]:
+        """Page an on-demand, source-backed method flow and optional value trace."""
+        from .dataflow import build_dataflow
+
+        model = self.model(snapshot_id)
+        scope = model['scopes'].get(symbol_id)
+        if scope is None or scope['kind'] in ('module', 'class'):
+            raise ThreadlineError('Select a callable definition in this snapshot')
+        if direction not in ('both', 'upstream', 'downstream'):
+            raise ThreadlineError('direction must be both, upstream, or downstream')
+        if node_id is None and direction != 'both':
+            raise ThreadlineError('direction requires a selected node')
+        if model_cursor < 0:
+            raise ThreadlineError('model_cursor must be zero or greater')
+        _page([], cursor, limit)
+        key = (model['snapshotId'], symbol_id, node_id, direction, model_cursor)
+        with self._dataflow_lock:
+            cached = self._dataflow_cache.get(key)
+            if cached is None:
+                graph = build_dataflow(
+                    model, symbol_id, node_id=node_id, direction=direction,
+                    max_events=400, max_edges=800, max_models=80,
+                    model_offset=model_cursor)
+                graph['templates'] = _template_summary(model, symbol_id,
+                                                       graph.get('templates', []))
+                graph = _portable_evidence_ids(graph)
+                size = len(json.dumps(graph, ensure_ascii=False).encode('utf-8'))
+                if size <= MAX_DATAFLOW_CACHE_BYTES:
+                    while self._dataflow_cache and (
+                        self._dataflow_cache_bytes + size > MAX_DATAFLOW_CACHE_BYTES
+                        or len(self._dataflow_cache) >= MAX_DATAFLOW_CACHE_ENTRIES
+                    ):
+                        _, (_, removed_size) = self._dataflow_cache.popitem(last=False)
+                        self._dataflow_cache_bytes -= removed_size
+                    self._dataflow_cache[key] = (graph, size)
+                    self._dataflow_cache_bytes += size
+            else:
+                graph, _ = cached
+                self._dataflow_cache.move_to_end(key)
+
+        trace = graph.get('trace')
+        trace_events = set(trace['eventIds']) if trace else None
+        events = [event for event in graph['events']
+                  if trace_events is None or event['id'] in trace_events]
+        event_page = _page(events, cursor, limit)
+        page_ids = {event['id'] for event in event_page['items']}
+        node_ids = {node_id} if node_id else set()
+        for event in event_page['items']:
+            node_ids.update(event.get('inputs', []))
+            node_ids.update(event.get('outputs', []))
+        known_nodes = {node['id']: node for node in graph['nodes']}
+        known_events = {event['id']: event for event in graph['events']}
+        endpoint_ids = known_nodes.keys() | known_events.keys()
+        relevant_ids = page_ids | node_ids
+        trace_edges = set(trace['edgeIds']) if trace else None
+        edges = [edge for edge in graph['edges']
+                 if (trace_edges is None or edge['id'] in trace_edges)
+                 and (edge['from'] in relevant_ids or edge['to'] in relevant_ids)
+                 and edge['from'] in endpoint_ids
+                 and edge['to'] in endpoint_ids]
+        for edge in edges:
+            for endpoint in (edge['from'], edge['to']):
+                if endpoint in known_nodes:
+                    node_ids.add(endpoint)
+        connected_event_ids = {endpoint for edge in edges
+                               for endpoint in (edge['from'], edge['to'])}
+        event_references = [
+            {key: event[key] for key in ('id', 'kind', 'label', 'span', 'evidenceId') if key in event}
+            for event in graph['events']
+            if event['id'] not in page_ids and event['id'] in connected_event_ids
+        ]
+        return copy.deepcopy({
+            'snapshotId': model['snapshotId'], 'dataflowVersion': graph['schemaVersion'],
+            'scope': graph['scope'],
+            # The engine bounds nodes; returning all of them preserves parameters
+            # and standalone model values that do not touch this event page.
+            'nodes': graph['nodes'],
+            'events': event_page, 'edges': edges, 'eventReferences': event_references,
+            'models': graph.get('models', []), 'modelCursor': model_cursor,
+            'modelTotal': graph['modelTotal'],
+            'nextModelOffset': graph['nextModelOffset'],
+            'gaps': graph.get('gaps', []),
+            'templates': graph['templates'],
+            'trace': trace, 'truncated': graph.get('truncated', False),
+            'omitted': graph.get('omitted', 0),
+        })
+
     def get_source(self, *, snapshot_id: str | None = None, evidence: str | None = None,
                    file: str | None = None, start: int | None = None, end: int | None = None) -> dict[str, Any]:
         model = self.model(snapshot_id)
         requested_span = None
-        if evidence:
+        if evidence and evidence.startswith('span1.'):
+            portable_span = _portable_evidence_span(evidence)
+            if (_source_info(model, portable_span['file']) or {}).get('hash') != portable_span['hash']:
+                raise ThreadlineError('evidence ID does not belong to this snapshot')
+            requested_span = portable_span
+            file, start, end = portable_span['file'], portable_span['start'], portable_span['end']
+        elif evidence:
             with self._evidence_lock:
                 if model['snapshotId'] not in self._evidence:
                     index = {}
@@ -513,6 +733,8 @@ class SnapshotStore:
                             for child in value: visit(child)
                     visit(model['scopes'])
                     visit(model.get('workflows', {}))
+                    visit(model.get('templateLinks', []))
+                    visit(model.get('templateAssets', {}))
                     index.update(self._registered_evidence.get(model['snapshotId'], {}))
                     self._evidence[model['snapshotId']] = index
                 match = self._evidence[model['snapshotId']].get(evidence)

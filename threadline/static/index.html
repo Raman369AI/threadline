@@ -3,15 +3,17 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Threadline · Python review</title>
-<link rel="stylesheet" href="styles.css"><script src="app.js" defer></script><script src="workflow.js" defer></script><script src="tests.js" defer></script><script src="method.js" defer></script>
+<link rel="stylesheet" href="styles.css"><script src="app.js" defer></script><script src="workflow.js" defer></script><script src="tests.js" defer></script><script src="method.js" defer></script><script src="dataflow_ui.js" defer></script>
 </head>
 <body>
-<a href="#flow" class="skip-link">Skip to method flow</a>
+<a href="#reviewWorkspace" class="skip-link">Skip to review</a>
 <header class="topbar">
   <a class="brand" href="#" aria-label="Threadline home"><span class="brand-icon" aria-hidden="true">↳</span> threadline</a>
   <span class="top-divider"></span><span id="projectName">Loading source…</span>
   <button id="analysisStatus" class="analysis-status" aria-controls="coveragePanel" hidden></button>
   <span class="top-spacer"></span><button id="helpButton" class="static-state" aria-expanded="false" aria-controls="helpPanel" title="How to read this review"><i></i> Source only · not executed <span class="help-mark" aria-hidden="true">?</span></button>
+  <button id="sidebarToggle" class="quiet-button" aria-expanded="true" aria-controls="repositoryNavigator">Hide sidebar</button>
+  <button id="focusMode" class="quiet-button" aria-pressed="false" aria-controls="repositoryNavigator">No-distraction mode</button>
   <button id="coverageButton" class="quiet-button" aria-expanded="false" aria-controls="coveragePanel">Coverage</button>
   <button id="refreshButton" class="quiet-button" title="Read the current files again">↻ Refresh source</button>
 </header>
@@ -37,61 +39,67 @@
 </section>
 <section id="coveragePanel" class="coverage-panel" tabindex="-1" role="region" aria-label="Source coverage" hidden></section>
 <div id="reviewError" class="review-error error" role="region" aria-label="Review error" hidden></div>
-<div class="workspace">
-  <aside class="navigator" aria-label="Repository navigator">
+<main id="reviewWorkspace" class="workspace" tabindex="-1" aria-label="Review workspace">
+  <aside id="repositoryNavigator" class="navigator" aria-label="Repository navigator">
     <label class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Route, command, or method…" aria-label="Search routes, commands, and methods"><kbd>/</kbd></label>
     <div class="view-tabs" role="group" aria-label="Review view"><button id="endpointsTab" aria-pressed="false">Endpoints</button><button id="commandsTab" aria-pressed="false">Commands &amp; tasks</button><button id="methodsTab" aria-pressed="false">Modules &amp; methods</button><button id="workflowTab" aria-pressed="false" hidden>Current workflow</button><button id="changesTab" aria-pressed="false" hidden>Changes</button></div>
     <section id="changesBrowser" hidden aria-label="Git changes"></section>
     <section id="workflowBrowser" hidden aria-label="Workflow overview"></section>
     <div id="repositoryBrowser"><div id="navigation" class="nav-tree"></div></div>
   </aside>
-  <main id="startPage" class="start-page" hidden>
+  <section id="startPage" class="start-page" hidden>
     <div class="start-heading"><p id="startProject" class="section-label"></p><h1 id="startTitle">Where do you want to start?</h1><p id="startHint">Choose a route, command, or method. Its workflow and original code open together.</p></div>
     <div id="startGroups" class="start-groups"></div>
-  </main>
-  <main class="review">
+  </section>
+  <section class="review">
     <div id="baselineNotice" class="baseline-notice" hidden></div>
     <nav id="pathBar" class="path-bar caller-strip" aria-label="Path from the first method" hidden></nav>
     <section id="workflowContext" hidden aria-label="Selected call"></section>
     <div class="review-heading">
       <h1 id="scopeTitle" class="method-title"><code id="methodName" class="method-name">Reading the repository</code></h1>
       <p id="methodWhere" class="method-where"></p>
-      <p id="methodSummary" class="method-summary"></p>
-      <div id="payloadSummary" class="payload-summary" role="group" aria-label="Input and output"></div>
       <div id="methodTabs" class="method-tabs" role="tablist" aria-label="Method views" hidden>
-        <button id="tab-steps" role="tab" data-tab="steps" aria-controls="stepsPanel" aria-selected="true">Steps</button>
+        <button id="tab-dataflow" role="tab" data-tab="dataflow" aria-controls="dataflowPanel" aria-selected="true">Data flow</button>
+        <button id="tab-steps" role="tab" data-tab="steps" aria-controls="stepsPanel" aria-selected="false" tabindex="-1">Steps</button>
+        <button id="tab-code" role="tab" data-tab="code" aria-controls="sourceCode" aria-selected="false" tabindex="-1">Code</button>
         <button id="tab-tests" role="tab" data-tab="tests" aria-controls="testsPanel" aria-selected="false" tabindex="-1">Tests <span id="testsCount" class="tab-count"></span></button>
         <button id="tab-callers" role="tab" data-tab="callers" aria-controls="callersPanel" aria-selected="false" tabindex="-1">Callers <span id="callersCount" class="tab-count"></span></button>
       </div>
     </div>
-    <section id="stepsPanel" class="tab-panel" role="tabpanel" aria-labelledby="tab-steps">
-      <details class="method-details"><summary>Details</summary>
-        <div id="scopePath" class="breadcrumb"></div>
-        <span id="scopeKind" class="kind-label"></span>
-        <div id="scopeSummary" class="scope-summary"></div>
-        <div id="suppliedInputs"></div>
-        <div id="returnDetails"></div>
-        <div class="review-controls"><button id="expandBranches" class="quiet-button">Expand visible branches</button><button id="collapseCalls" class="quiet-button">Collapse calls</button></div>
-      </details>
-      <p class="reading-hint">Select a step to see its code.</p>
-      <div id="flow" class="flow" tabindex="-1"></div>
-    </section>
-    <section id="testsPanel" class="tab-panel tests-panel" role="tabpanel" aria-labelledby="tab-tests" hidden></section>
-    <section id="callersPanel" class="tab-panel tests-panel" role="tabpanel" aria-labelledby="tab-callers" hidden></section>
-  </main>
-  <main id="comparisonPanel" class="comparison-panel" aria-label="Before and after source comparison" hidden></main>
+    <div class="analysis-pair">
+      <div class="analysis-main">
+        <section id="dataflowPanel" class="tab-panel" role="tabpanel" aria-labelledby="tab-dataflow"><div id="dataflowOverview" class="dataflow-overview"></div><div id="dataflowTrace" class="dataflow-trace"></div></section>
+        <section id="stepsPanel" class="tab-panel" role="tabpanel" aria-labelledby="tab-steps" hidden>
+          <details class="method-details"><summary>Details</summary>
+            <p id="methodSummary" class="method-summary"></p><div id="payloadSummary" class="payload-summary" role="group" aria-label="Input and output"></div>
+            <div id="scopePath" class="breadcrumb"></div><span id="scopeKind" class="kind-label"></span>
+            <div id="scopeSummary" class="scope-summary"></div><div id="suppliedInputs"></div><div id="returnDetails"></div>
+            <div class="review-controls"><button id="expandBranches" class="quiet-button">Expand visible branches</button><button id="collapseCalls" class="quiet-button">Collapse calls</button></div>
+          </details>
+          <p class="reading-hint">Select a step to see its code.</p><div id="flow" class="flow" tabindex="-1"></div>
+        </section>
+        <section id="testsPanel" class="tab-panel tests-panel" role="tabpanel" aria-labelledby="tab-tests" hidden></section>
+        <section id="callersPanel" class="tab-panel tests-panel" role="tabpanel" aria-labelledby="tab-callers" hidden></section>
+      </div>
+      <aside id="dataModelPane" class="data-model-pane" aria-label="Data models"><h2>Data models</h2><div id="dataModelContent"></div></aside>
+    </div>
+  </section>
+  <section id="comparisonPanel" class="comparison-panel" aria-label="Before and after source comparison" hidden></section>
+  <section id="callerComparisonPanel" class="caller-comparison-panel" aria-label="Caller and called method comparison" hidden></section>
+  <div id="codeResize" class="code-resize" role="separator" tabindex="0" aria-label="Resize code view" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="42"></div>
   <aside class="source-panel" aria-label="Original source">
-    <div class="source-header"><div><span class="section-label">CODE</span><div id="sourceFile" class="source-file">Select a flow operation</div></div><button id="clearFocus" class="quiet-button" title="Show the selected method">Whole method</button></div>
+    <div class="source-header"><div><span class="section-label">CODE</span><h1 id="sourceMethodTitle" class="source-method-title" hidden></h1><div id="sourceFile" class="source-file">Select a method</div></div><div class="source-actions"><button id="clearFocus" class="quiet-button" title="Show the selected method">Whole method</button><button id="fullCode" class="quiet-button">Full width</button><button id="restoreCode" class="quiet-button" hidden>Return to analysis</button><button id="resetCodeWidth" class="quiet-button" title="Reset code width">Reset width</button></div></div>
     <div id="sourceContext" class="source-context">Select a step to see its code.</div>
     <div id="sourceCode" class="code-window" role="region" tabindex="0" aria-label="Original Python source"></div>
+    <details id="relatedTests" class="related-tests"><summary>Related tests <span id="relatedTestsCount"></span></summary><div id="relatedTestsContent"></div></details>
     <section id="pairPane" class="pair-pane" aria-labelledby="pairTitle" hidden>
       <div class="pair-header"><div><span id="pairLabel" class="section-label">TEST CODE</span><div class="pair-name"><code id="pairTitle"></code> <span id="pairFile" class="pair-file"></span></div></div><button id="pairClose" class="quiet-button" title="Hide this code">Close</button></div>
       <div id="pairCode" class="code-window" role="region" tabindex="0" aria-label="Related source"></div>
     </section>
-    <div id="sourceDetails" class="source-details"></div>
+    <div id="sourceDetails" class="source-details" role="region" tabindex="0" aria-label="Source context and actions"></div>
     <div class="source-footer"><span id="snapshotLabel">Source snapshot</span></div>
   </aside>
-</div>
+</main>
 <div id="announcement" class="sr-only" aria-live="polite"></div>
 </body>
 </html>

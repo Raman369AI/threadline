@@ -14,7 +14,9 @@ from .service import SnapshotStore, ThreadlineError
 from .changes import review_changes
 
 ASSETS = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
-          '/workflow.js': ('workflow.js', 'text/javascript'), '/tests.js': ('tests.js', 'text/javascript'), '/method.js': ('method.js', 'text/javascript'), '/styles.css': ('styles.css', 'text/css')}
+          '/workflow.js': ('workflow.js', 'text/javascript'), '/tests.js': ('tests.js', 'text/javascript'),
+          '/method.js': ('method.js', 'text/javascript'), '/dataflow_ui.js': ('dataflow_ui.js', 'text/javascript'),
+          '/styles.css': ('styles.css', 'text/css')}
 
 
 class BoundedHTTPServer(ThreadingHTTPServer):
@@ -107,6 +109,26 @@ def make_server(root, host='127.0.0.1', port=4173, retention=2, base=None, sourc
                 if path == '/api/symbols': return self.reply(200, pinned.find_symbols(_one(query, 'q', ''), kind=_one(query, 'kind', 'callable'), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 25)))
                 if path == '/api/workflow': return self.reply(200, pinned.get_workflow(_one(query, 'entrypoint', required=True), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 40)))
                 if path == '/api/method': return self.reply(200, pinned.get_method(_one(query, 'symbol', required=True), snapshot_id=_one(query, 'snapshot'), cursor=_int(query, 'cursor', 0), limit=_int(query, 'limit', 50)))
+                if path == '/api/method-source':
+                    snapshot = _one(query, 'snapshot')
+                    cursor = _int(query, 'cursor', 0)
+                    if cursor and not snapshot:
+                        raise ThreadlineError('snapshot is required for a later method-source page')
+                    return self.reply(200, pinned.get_method_source(
+                        _one(query, 'symbol', required=True), snapshot_id=snapshot,
+                        cursor=cursor, limit=_int(query, 'limit', 100)))
+                if path == '/api/dataflow':
+                    snapshot = _one(query, 'snapshot')
+                    cursor = _int(query, 'cursor', 0)
+                    model_cursor = _int(query, 'model_cursor', 0)
+                    node = _one(query, 'node')
+                    if (cursor > 0 or model_cursor > 0 or node) and not snapshot:
+                        raise ThreadlineError('snapshot is required for data-flow continuation')
+                    return self.reply(200, pinned.get_dataflow(
+                        _one(query, 'symbol', required=True), snapshot_id=snapshot,
+                        node_id=node, direction=_one(query, 'direction', 'both'),
+                        cursor=cursor, limit=_int(query, 'limit', 25),
+                        model_cursor=model_cursor))
                 if path == '/api/source': return self.reply(200, pinned.get_source(snapshot_id=_one(query, 'snapshot'), evidence=_one(query, 'evidence'), file=_one(query, 'file'), start=_optional_int(query, 'start'), end=_optional_int(query, 'end')))
                 if path in ASSETS:
                     name, mime = ASSETS[path]

@@ -10,7 +10,7 @@ button{color:inherit}
 button:disabled{opacity:.55;cursor:wait}
 [hidden]{display:none!important}
 code{font-family:var(--mono)}
-.topbar{height:61px;display:flex;align-items:center;gap:17px;border-bottom:1px solid var(--line);padding:0 22px;background:#fff}
+.topbar{min-height:61px;display:flex;flex-wrap:wrap;align-items:center;align-content:center;gap:4px 17px;border-bottom:1px solid var(--line);padding:8px 22px;background:#fff}
 .brand{text-decoration:none;color:#254b37;font-size:20px;font-weight:700;letter-spacing:-.7px;display:flex;align-items:center;gap:9px}
 .brand-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:7px;background:#27583f;color:white;font-size:25px}
 .top-divider{height:21px;border-left:1px solid var(--line)}

@@ -64,7 +64,7 @@ def main():
                     if process.poll() is not None: raise RuntimeError('Packaged server exited before startup')
                     time.sleep(.05)
                 assert url, 'Packaged server did not start: '+(root/'server.log').read_text()
-                for path, expected in [('', b'Threadline'), ('app.js', b'/api/summary'), ('workflow.js', b'loadCallWorkflow'), ('styles.css', b'body'), ('api/summary', b'snapshotId')]:
+                for path, expected in [('', b'Threadline'), ('app.js', b'/api/summary'), ('workflow.js', b'loadCallWorkflow'), ('tests.js', b'/api/tests'), ('styles.css', b'body'), ('api/summary', b'snapshotId')]:
                     with urllib.request.urlopen(url + path, timeout=5) as response:
                         assert response.status == 200
                         assert expected in response.read(), path

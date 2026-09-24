@@ -11,6 +11,7 @@ from typing import Any
 
 from .analyzer import analyze, AnalysisLimitError
 from .workflows import generic_workflow, suggested_entrypoints, workflow_catalog
+from . import testlinks
 
 SCHEMA_VERSION = "1.1"
 MAX_PAGE = 100
@@ -119,6 +120,8 @@ class SnapshotStore:
         self._workflow_cache = OrderedDict()
         self._workflow_cache_bytes = 0
         self._workflow_lock = threading.Lock()
+        self._test_index = {}
+        self._test_lock = threading.Lock()
 
     def refresh(self) -> dict[str, Any]:
         try:
@@ -160,6 +163,7 @@ class SnapshotStore:
             self._order.remove(expired); self._models.pop(expired, None)
             self._evidence.pop(expired, None)
             self._registered_evidence.pop(expired, None)
+            self._test_index.pop(expired, None)
             with self._workflow_lock:
                 for key in list(self._workflow_cache):
                     if key[0] == expired:
@@ -307,6 +311,23 @@ class SnapshotStore:
         workflow["snapshotId"] = model["snapshotId"]
         workflow['nextCursor'] = next((page['nextCursor'] for page in (stage_page, workflow['alternatives'], workflow['uncertainties']) if page['nextCursor'] is not None), None)
         return copy.deepcopy(workflow)
+
+    def related_tests(self, symbol_id, *, snapshot_id=None, cursor=0, limit=20):
+        """Tests linked to a method, or the methods a selected test exercises."""
+        model = self.model(snapshot_id)
+        scope = model['scopes'].get(symbol_id)
+        if scope is None:
+            raise ThreadlineError('Definition is absent from this snapshot')
+        _page([], cursor, limit)
+        with self._test_lock:
+            index = self._test_index.get(model['snapshotId'])
+            if index is None:
+                index = self._test_index[model['snapshotId']] = testlinks.build_index(model)
+        role = 'test' if symbol_id in index['tests'] else 'code'
+        rows = testlinks.tested_subjects(model, index, symbol_id) if role == 'test' else testlinks.related_tests(model, index, symbol_id)
+        return {'snapshotId': model['snapshotId'], 'symbol': symbol_id, 'role': role, 'testCount': len(index['tests']),
+                'items': add_evidence_ids(_page(rows, cursor, limit)),
+                'notice': 'Linked from source; the tests were not run and coverage is not measured.'}
 
     def get_scope(self, symbol_id, *, snapshot_id=None, cursor=0, limit=20, shallow=False):
         model = self.model(snapshot_id)

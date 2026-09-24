@@ -234,7 +234,7 @@ async function chooseScope(id, opts={}) {
   }
   appendScopeFlow($('#flow'), scope, [scope.id], 0);
   $('#flow').append(el('div', 'scope-end', ['module','class'].includes(scope.kind) ? 'End of body · definitions remain individually accessible.' : (scope.nextCursor!==null?'More statements are available using Load more statements above.':'End of body · if control reaches here, Python returns None (or the generator terminates).')));
-  renderPayloads(); navigation();
+  renderPayloads(); navigation(); if (typeof loadTests === 'function') loadTests(id);
   await showSource(scope.span, scope.qualified, 'Original source for this scope. Select an operation to focus its evidence.');
   if(request!==selectionRequest || captured!==model)return false;
   $('.review').scrollTop = 0;

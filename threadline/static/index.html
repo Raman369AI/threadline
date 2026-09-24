@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Threadline · Python review</title>
-<link rel="stylesheet" href="styles.css"><script src="app.js" defer></script><script src="workflow.js" defer></script>
+<link rel="stylesheet" href="styles.css"><script src="app.js" defer></script><script src="workflow.js" defer></script><script src="tests.js" defer></script>
 </head>
 <body>
 <a href="#flow" class="skip-link">Skip to method flow</a>
@@ -36,6 +36,7 @@
       <div class="title-row"><h1 id="scopeTitle">Reading the repository</h1></div>
       <code id="methodName" class="method-name"></code>
       <div id="payloadSummary" class="payload-summary" role="group" aria-label="Input and output"></div>
+      <section id="testsPanel" class="tests-panel" aria-label="Related tests" hidden></section>
       <details class="method-details"><summary>Details</summary>
         <div id="scopePath" class="breadcrumb"></div>
         <span id="scopeKind" class="kind-label"></span>
@@ -53,6 +54,10 @@
     <div class="source-header"><div><span class="section-label">ORIGINAL CODE</span><div id="sourceFile" class="source-file">Select a flow operation</div></div><button id="clearFocus" class="quiet-button" title="Show the selected method">Whole method</button></div>
     <div id="sourceContext" class="source-context">The surrounding flow stays in place.</div>
     <div id="sourceCode" class="code-window" role="region" tabindex="0" aria-label="Original Python source"></div>
+    <section id="pairPane" class="pair-pane" aria-labelledby="pairTitle" hidden>
+      <div class="pair-header"><div><span id="pairLabel" class="section-label">TEST CODE</span><div class="pair-name"><code id="pairTitle"></code> <span id="pairFile" class="pair-file"></span></div></div><button id="pairClose" class="quiet-button" title="Hide this code">Close</button></div>
+      <div id="pairCode" class="code-window" role="region" tabindex="0" aria-label="Related source"></div>
+    </section>
     <div id="sourceDetails" class="source-details"></div>
     <div class="source-footer"><span id="snapshotLabel">Source snapshot</span><span>Read only · never executed</span></div>
   </aside>

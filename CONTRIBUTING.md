@@ -42,6 +42,7 @@ Avoid full-repository graphs, modal navigation, dense tables, and controls that 
 python3 -m unittest discover -v
 node --check threadline/static/app.js
 node --check threadline/static/workflow.js
+node --check threadline/static/tests.js
 python3 -m pip install '.[typecheck]'
 python3 -m mypy --follow-imports=skip --check-untyped-defs threadline/schema.py threadline/workflows.py threadline/agent_cli.py
 python3 tests/browser_smoke.py

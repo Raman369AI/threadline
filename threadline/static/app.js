@@ -674,4 +674,6 @@ window.addEventListener('hashchange',async()=>{
     else if(id!==state.scope)await startReview(id);
   } catch(error) {reportError(error,null,'selection');}
 });
-load();
+// Deferred scripts run before DOMContentLoaded, so workflow.js and tests.js
+// are defined even when a slow download finishes after the first API reply.
+document.addEventListener('DOMContentLoaded',()=>load(),{once:true});

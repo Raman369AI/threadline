@@ -125,6 +125,14 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(response.status,200)
             self.assertIn('frame-ancestors',response.headers['Content-Security-Policy'])
 
+    def test_browser_startup_waits_for_every_deferred_script(self):
+        # load() needs workflow.js; starting it from app.js raced slow downloads in Safari.
+        with urlopen(self.url+'/') as response: page=response.read().decode()
+        scripts=[name for name in ('app.js','workflow.js','tests.js') if f'<script src="{name}" defer>' in page]
+        self.assertEqual(scripts,['app.js','workflow.js','tests.js'])
+        with urlopen(self.url+'/app.js') as response: app=response.read().decode()
+        self.assertEqual(app.rstrip().splitlines()[-1],"document.addEventListener('DOMContentLoaded',()=>load(),{once:true});")
+
     def test_bounded_query_endpoints_share_the_snapshot(self):
         with urlopen(self.url+'/api/summary?limit=1') as response: summary=json.load(response)
         snapshot=summary['snapshotId']

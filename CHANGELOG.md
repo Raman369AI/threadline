@@ -9,6 +9,7 @@
 - Add snapshot-pinned structured CLI queries for diagnostics, symbols, methods, workflows, branches, source evidence, and paged changes, with completeness and schema metadata.
 - Expand the independent semantic corpus and browser/CLI regressions.
 - Add typed response contracts and a scoped mypy gate for the schema, workflow projection, and structured CLI.
+- Show the tests linked to the selected method, and the methods a selected test exercises, with that source beside the method.
 
 ## 0.2.0b2 — 2026-09-18
 

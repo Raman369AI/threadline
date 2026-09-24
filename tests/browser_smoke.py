@@ -35,6 +35,7 @@ for source in (ROOT/'example').glob('*.py'): shutil.copyfile(source,fixture_root
     'def unreachable():\n    return 0\n    Repo().get()\n'
     'def built():\n    return Repo()\n'
 )
+(fixture_root/'test_oo_review.py').write_text('from oo_review import Repo, Service\ndef test_entry_reads_repo():\n    assert Service(Repo()).entry() == 1\n')
 (fixture_root/'pyproject.toml').write_text('[project.scripts]\ndemo="cli_demo:main"\n')
 change_review='--changes' in sys.argv
 if change_review:
@@ -299,6 +300,21 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             if js("state.scope===window.__ooEntry"):break
             time.sleep(.02)
         checks['possible_target_returns_to_callsite']=js("state.scope===window.__ooEntry")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'Repo.get',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.qualified==='Repo.get').id);})()")
+        for _ in range(100):
+            if js("document.querySelector('#testsPanel .test-row')!==null"):break
+            time.sleep(.02)
+        checks['related_test_listed_with_reason']=js("document.querySelector('#testsPanel .test-row.indirect')?.textContent.includes('test_entry_reads_repo') && document.querySelector('#testsPanel').textContent.includes('through Service.entry')")
+        js("document.querySelector('#testsPanel .test-pick').click()")
+        for _ in range(100):
+            if js("document.querySelector('#pairCode').textContent.includes('Service(Repo()).entry()')"):break
+            time.sleep(.02)
+        checks['test_source_beside_method']=js("!document.querySelector('#pairPane').hidden && document.querySelector('#pairCode .code-line.focus')?.textContent.includes('entry()') && document.querySelector('#sourceCode').textContent.includes('def get')")
+        js("document.querySelector('#testsPanel .test-open').click()")
+        for _ in range(100):
+            if js("document.querySelector('#methodName').textContent==='test_entry_reads_repo' && document.querySelector('#testsPanel').textContent.includes('Service.entry')"):break
+            time.sleep(.02)
+        checks['selected_test_lists_exercised_code']=js("document.querySelector('#testsPanel').textContent.includes('This test exercises') && document.querySelector('#testsPanel').textContent.includes('Service.entry') && document.querySelector('#pairPane').hidden")
         js("(async()=>{const rows=await api('/api/symbols',{q:'unreachable',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='unreachable').id);await showSelectedWorkflow();})()")
         checks['unreachable_workflow_stage_marked']=js("[...document.querySelectorAll('.workflow-stage.unreachable')].some(b=>b.textContent.includes('Unreachable'))")
         js("(async()=>{const rows=await api('/api/symbols',{q:'conditional',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='conditional').id);await showSelectedWorkflow();})()")

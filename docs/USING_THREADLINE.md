@@ -50,6 +50,19 @@ python3 -m venv .venv
 
 No target-project installation or configuration is needed. Maintainers can follow the [PyPI publishing guide](PUBLISHING.md) to configure and publish package releases.
 
+## See related tests
+
+Every selected function or method shows a **Tests** section under its inputs and outputs. Each row names a test and why it is linked:
+
+- **Direct**: the test calls the method.
+- **Route**: for an endpoint, the test requests a matching path, such as `client.get("/orders/42")` for `/orders/{order_id}`.
+- **Indirect**: the test reaches the method through up to three other calls; the row shows the chain.
+- **Name match**: the test name contains the method name, but no call was linked.
+
+Links that depend on a possible call are labeled **possible**. Select a row to show the test source under the method source, with the linking call highlighted. **Open →** reviews the test's own flow. When a test is selected, the section lists the methods it exercises instead, including those reached through helpers in test files.
+
+Tests are found in `test_*.py` and `*_test.py` files and in `tests/` or `test/` directories. They must be inside the analyzed source roots. Threadline does not run tests or measure coverage; a linked test is not evidence that a branch is exercised.
+
 ## Review a change
 
 From a Git working tree, compare Python changes with an explicit baseline:

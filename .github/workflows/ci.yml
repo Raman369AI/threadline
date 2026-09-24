@@ -36,6 +36,7 @@ jobs:
           path: artifacts/semantic-accuracy.json
       - run: node --check threadline/static/app.js
       - run: node --check threadline/static/workflow.js
+      - run: node --check threadline/static/tests.js
       - run: python tests/browser_smoke.py
         if: runner.os == 'Linux'
       - run: python tests/browser_smoke.py --changes

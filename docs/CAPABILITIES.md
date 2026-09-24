@@ -12,6 +12,7 @@
 | Async and generators | Deferred execution and known scheduling boundaries labeled | Scheduling outcome and interleaving are not observed. |
 | Python 3.12 type aliases | Calls in `type Alias = ...` values carry a deferred evaluation context | Other type-parameter annotation-scope forms are not fully modeled; no alias value is evaluated by Threadline. |
 | Git changes | Changed definitions, rename-only records, files and edits outside definitions, before/after source, current and baseline callers, possible impact | Diff mapping is syntactic and uses retained source. Unassessed edits can affect behavior beyond direct callers. Rename, quoted-path, and concurrent-edit cases have regression coverage. |
+| Related tests | Tests that call, reach through up to three calls, or request the route of a method; name-only candidates; methods a test exercises | Links use the same static call resolution. Tests are not run, coverage is not measured, and fixtures, parametrization, and mocks are not modeled. |
 | Flask and queue frameworks | Generic Python review validated on pinned Flask and Celery source | Framework-specific dispatch and task lifecycle links are not modeled. |
 | Django | Generic Python review validated on pinned Django source | Middleware callbacks remain unknown; member dispatch remains possible. Framework runtime execution is not modeled. |
 

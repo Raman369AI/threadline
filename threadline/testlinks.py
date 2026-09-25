@@ -24,7 +24,21 @@ def is_test_scope(model, scope):
     if not scope['name'].startswith('test'):
         return False
     parent = model['scopes'].get(scope['parent'])
-    return scope['kind'] == 'function' or bool(parent and parent['name'].startswith('Test'))
+    return scope['kind'] == 'function' or bool(parent and _is_test_class(parent))
+
+
+def _is_test_class(scope):
+    """pytest collects Test* classes; unittest collects TestCase subclasses by any name."""
+    if scope['kind'] != 'class':
+        return False
+    if scope['name'].startswith('Test'):
+        return True
+    try:
+        node = ast.parse(scope.get('signature', '') + '\n    pass').body[0]
+    except (SyntaxError, IndexError):
+        return False
+    return isinstance(node, ast.ClassDef) and any(
+        ast.unparse(base).split('.')[-1].endswith('TestCase') for base in node.bases)
 
 
 def _flatten(flow):

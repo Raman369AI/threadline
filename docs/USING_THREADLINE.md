@@ -34,6 +34,30 @@ The `example` directory is included in the source repository. For a PyPI install
 
 ## Share this beta
 
+### Save a review as HTML
+
+```bash
+threadline review /path/to/python-repository --output review.html
+threadline review /path/to/python-repository --base HEAD --output changes.html --no-open
+```
+
+The command generates a single file and exits without starting a server. Open it
+directly in a browser, including on a computer without Python or Threadline.
+The existing interactive viewer uses the embedded source and analysis for search,
+navigation, data flow, models, tests, workflows, and before/after comparisons.
+The file contains reviewed source and any requested Git baseline; share it with
+people who should have access to that code.
+
+The **Saved HTML review** label identifies a frozen snapshot. Regenerate the file
+after editing source. For in-browser **Refresh source**, use `threadline review`
+without `--output`. Export prepares analysis for every included method, so large
+repositories can take longer than starting a live review. Narrow the export with
+`--source-root` and `--exclude` as needed; files exceeding 256 MiB are rejected
+without replacing an existing output file. Existing HTML output is replaced on a
+successful export.
+
+### Share an installable package
+
 To share a local build directly, build a wheel and give the resulting file to another reviewer:
 
 ```bash
@@ -44,7 +68,7 @@ They install and run it locally:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install threadline_review-0.2.0b3-py3-none-any.whl
+.venv/bin/python -m pip install threadline_review-0.2.0b4-py3-none-any.whl
 .venv/bin/threadline review /path/to/python-repository
 ```
 
@@ -52,17 +76,13 @@ No target-project installation or configuration is needed. Maintainers can follo
 
 ## Read a method
 
-The selected method's name stays above its views:
+A method is reviewed as its own code:
 
-- **Data flow** shows inputs, newly created or changed values, later uses, and outputs. Select a value to trace its origins and uses. Unknown results or effects stop at a labeled boundary.
-- **Data models** sit beside Data flow or Steps. Indexed model definitions come first and retain every indexed field, including fields the method does not use. External types have a separate compact group. Expand **Method data** to inspect named parameters, locals, assigned fields, added keys, and mutations; transient call results and joins stay in Data flow. A field assigned in the method is distinguished from one declared on the model.
-- **Steps** retains the line-by-line source explanation and branch controls.
-- **Code** shows only the selected function or method, including its signature and decorators. Expand it to the available width, or show it beside the analysis and resize its pane. The source boundary stays at that method even when Code fills the workspace.
-- **Tests** and **Callers** remain available as separate views. Related tests also expand beneath the method code.
+- **Summary**: *In* (parameters; framework-provided ones are dashed), *Calls* (project functions it calls), *Changes* (objects and fields it modifies), and *Returns*. Select an input or change to highlight it in the code, or a call to open it.
+- **Code**: only the selected function or method, including its signature and decorators. Select a name to highlight every use in the method; assignments show in bold. Calls into your project are underlined and open beside the code. Highlighting matches names within the method; it is not a runtime value trace.
+- **Beside the code**: the opened call, test, or caller, with **Open →** to move into it; then **Tests**, **Callers**, and **Models**, each model shown as its declaration source.
 
-The top of the method view stays compact; details remain in the selected view.
-**No-distraction** hides the left navigator, and a separate control collapses
-or restores that sidebar. Both keep the selected method and trace in place.
+**Hide sidebar** gives the code the full width. <kbd>Esc</kbd> clears a highlight, then closes the side code.
 
 For a route such as `dashboard(request: Request, db=Depends(get_db))`, `request`
 and `db` are declared inputs. `Project` in `select(Project)` is a reference to a
@@ -79,30 +99,30 @@ not another output of the Python method.
 
 Calls are labeled **Calls** (one source target), **Probably calls** (a likely target that inheritance, decorators, or reassignment could change), **Library** (outside the repository), or **Can't tell** (decided at runtime). Probable links use dashed outlines. The **?** next to *Source only · not executed* opens help and keyboard shortcuts.
 
-Following a call opens the target method with a path back. Selecting a caller
-compares the current method and caller side by side: each has its own bounded
-code and Data flow, with the callsite and method entry highlighted. Open Data
-models inside either side when needed. **Back** restores the prior method,
-view, trace, code position, and layout. Caller comparison is separate from Git
-before/after comparison. Keyboard: <kbd>/</kbd> search, <kbd>j</kbd>/<kbd>k</kbd>
-next or previous step, <kbd>Backspace</kbd> back, <kbd>?</kbd> help. View and
-resize controls can also be reached by Tab.
+The **call map** lists the project functions a method reaches, nested under
+their callers. Every step shows its name, the same small tags (*if*, *later*,
+*probably*, *can't tell*, *new object*, *unreachable*), and the line that calls
+it. Library and untraced calls are folded behind one toggle.
+
+Opening a method keeps a path back: **Back** (or <kbd>Backspace</kbd>) restores
+the prior method, its highlight, and what was open beside it. Keyboard:
+<kbd>/</kbd> search, <kbd>Esc</kbd> clear, <kbd>Backspace</kbd> back,
+<kbd>?</kbd> help.
 
 ## See related tests
 
-The **Tests** tab names each test and why it is linked:
+The **Tests** list beside the code names each test and why it is linked:
 
 - **Direct**: the test calls the method.
 - **Route**: for an endpoint, the test requests a matching path, such as `client.get("/orders/42")` for `/orders/{order_id}`.
 - **Indirect**: the test reaches the method through up to three other calls; the row shows the chain.
 - **Name match**: the test name contains the method name, but no call was linked.
 
-Links that depend on a probable call are labeled **probably**. The **Related
-tests** section below Code is collapsed until opened; each linked test expands
-to that test's function or method, rather than its whole file. The Tests view
-continues to show the relationship and offers **Go to →** to review the test's
-own flow. When a test is selected, the tab becomes **Exercises** and lists the
-methods the test calls, including those reached through helpers in test files.
+Links that depend on a probable call are labeled **probably**. Selecting a test
+shows that test's function beside the code with the calling line marked, rather
+than its whole file; **Open →** reviews the test itself. When a test is the
+selected method, the list becomes **Code this test reaches**, including methods
+reached through helpers in test files.
 
 Tests are found in `test_*.py` and `*_test.py` files and in `tests/` or `test/` directories. They must be inside the analyzed source roots. Threadline does not run tests or measure coverage; a linked test is not evidence that a branch is exercised.
 

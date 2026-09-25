@@ -14,8 +14,8 @@ from .service import SnapshotStore, ThreadlineError
 from .changes import review_changes
 
 ASSETS = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
-          '/workflow.js': ('workflow.js', 'text/javascript'), '/tests.js': ('tests.js', 'text/javascript'),
-          '/method.js': ('method.js', 'text/javascript'), '/dataflow_ui.js': ('dataflow_ui.js', 'text/javascript'),
+          '/workflow.js': ('workflow.js', 'text/javascript'), '/method.js': ('method.js', 'text/javascript'),
+          '/review_data.js': ('review_data.js', 'text/javascript'), '/codefirst.js': ('codefirst.js', 'text/javascript'),
           '/styles.css': ('styles.css', 'text/css')}
 
 

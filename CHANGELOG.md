@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.2.0b4 — 2026-09-25
+
+- Export the interactive viewer and retained source as one standalone HTML file with `threadline review PROJECT --output review.html`; browse without a server or network connection.
+- Make the `threadline-review` PyPI package name prominent and expand Python code review, call graph, and data flow search metadata.
+- Link tests in `unittest.TestCase` subclasses of any name, such as `OrderTests`, not only `Test*` classes.
+- List console scripts that re-export their function (`pkg.cli:main` defined in `pkg.commands`) and `python -m pkg` for packages with `__main__.py`; project commands and modules now list before test modules.
+- Replace the tabbed method view (Data flow, Steps, Code, Tests, Callers, the separate code pane, caller comparison, No-distraction mode) with one code review: the method's code under an In / Calls / Changes / Returns summary. Names highlight their uses; project calls, tests, and callers open beside the code; referenced models show as declaration source. **Back** restores the prior method, highlight, and side code.
+- Give every call-map step the same form: name, uniform tags (*if*, *later*, *probably*, *can't tell*, *new object*, *unreachable*), and the line that calls it. Library and untraced calls fold behind one toggle.
+- Mark a step *later* only when a coroutine or generator is left unawaited, not for every awaited call under an async endpoint.
+- Name object joins in data flow after their value instead of internal ids such as `o2`.
+- Stop listing a package `__init__.py` main guard as `python -m pkg`; that command runs `__main__.py`.
+- Hide empty Endpoints and Commands pages; keep the reading-guide button visible on narrow windows and give it a Close button.
 
 ## 0.2.0b3 — 2026-09-24
 

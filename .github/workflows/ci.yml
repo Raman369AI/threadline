@@ -36,13 +36,18 @@ jobs:
           path: artifacts/semantic-accuracy.json
       - run: node --check threadline/static/app.js
       - run: node --check threadline/static/workflow.js
-      - run: node --check threadline/static/tests.js
       - run: node --check threadline/static/method.js
-      - run: node --check threadline/static/dataflow_ui.js
+      - run: node --check threadline/static/review_data.js
+      - run: node --check threadline/static/offline.js
+      - run: node --check threadline/static/codefirst.js
       - run: python tests/browser_smoke.py
         if: runner.os == 'Linux'
       - run: python tests/browser_smoke.py --changes
         if: runner.os == 'Linux'
+      - run: python tests/browser_smoke.py --html
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+      - run: python tests/browser_smoke.py --html --changes
+        if: runner.os == 'Linux' && matrix.python == '3.12'
       - name: Chrome accessibility and keyboard checks
         if: runner.os == 'Linux' && matrix.python == '3.12'
         run: python tests/browser_accessibility.py --browser chrome --report artifacts/accessibility-chrome.json

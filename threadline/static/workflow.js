@@ -1,5 +1,5 @@
 /* Cross-file workflow for the currently selected method. */
-const workflowState = { mode:'starts', profile:null, stage:null, initialized:false };
+const workflowState = { mode:'starts', profile:null, stage:null, initialized:false, showLibrary:false };
 
 async function initializeWorkflows(refresh=false) {
   if(!state.scope || !model.scopes[state.scope]) {await showStartPage();return;}
@@ -100,8 +100,18 @@ function renderWorkflow() {
   const workflow=workflowState.profile;if(!workflow)return;
   host.append(el('h2','workflow-title','Call map'),el('p','workflow-intro','Every call reachable from '+scopeName(workflow.root)+', nested under its caller.'));
   if(!workflow.stages.length){host.append(button('Build workflow for selected method →','workflow-primary-action',showSelectedWorkflow));host.scrollTop=scroll;return;}
+  // Library calls (str, len, dict.get…) are resolved, not gaps; fold them away by default.
+  // The map lists project functions; library and untraced leaf calls stay one toggle away.
+  const library=workflow.stages.filter(stage=>['external','unknown'].includes(stage.status) && stage.id!==workflowState.stage && !workflow.stages.some(child=>child.parent===stage.id));
+  const kind=' library & untraced calls';
+  if(library.length){
+    const toggle=button((workflowState.showLibrary?'Hide ':'Show ')+library.length+kind,'quiet-button workflow-library-toggle',()=>{workflowState.showLibrary=!workflowState.showLibrary;renderWorkflow();});
+    toggle.setAttribute('aria-pressed',String(workflowState.showLibrary));host.append(toggle);
+  }
+  const hidden=new Set(workflowState.showLibrary?[]:library.map(stage=>stage.id));
   const list=el('div','workflow-stages');
   for(const [index,stage] of workflow.stages.entries()){
+    if(hidden.has(stage.id))continue;
     if(stage.parent){
       const link=workflow.links.find(item=>item.to===stage.id),parent=workflow.stages.find(item=>item.id===stage.parent),group=el('div','workflow-nested-step');
       group.style.marginLeft=Math.min(stage.depth||1,3)*6+'px';
@@ -130,19 +140,36 @@ function renderWorkflow() {
   const note=el('details','workflow-provenance');note.append(el('summary','','How this workflow was built'),el('p','',workflow.provenance));host.append(note);
   host.scrollTop=scroll;
 }
+// Every call in an async body is formally deferred; that only matters when the
+// coroutine itself is not awaited (inherited), or the call creates one unawaited.
+// Deferral is also inherited through awaited calls; follow deferredBy to the call that
+// actually defers. An unloaded source stage keeps the conservative answer.
+function runsLater(stage,seen=new Set()) {
+  const context=stage.executionContext||{};
+  if(/deferred (coroutine|generator)|background/.test(stage.condition||'') || (context.deferred && context.kind!=='coroutine body')) return true;
+  if(!context.inheritedDeferred || seen.has(stage.id)) return false;
+  seen.add(stage.id);
+  const source=workflowState.profile?.stages.find(item=>item.id===context.deferredBy);
+  return source?runsLater(source,seen):true;
+}
+// Every step reads the same way: number, name, tags; then the line that calls it.
+const stageTags={possible:['probably','The likely target; inheritance or a reassignment could change it'],unknown:["can't tell",'The target is decided at runtime'],external:['library','Code outside this repository']};
 function stageButton(stage,index) {
   const scope=model.scopes[stage.scope],b=button('','workflow-stage'+(stage.id===workflowState.stage?' active':'')+(stage.unreachable?' unreachable':''),()=>selectWorkflowStage(stage.id));
   b.title=stage.condition+' · '+(scope?.qualified||stage.label);b.dataset.stage=stage.id;b.setAttribute('aria-pressed',String(stage.id===workflowState.stage));
-  b.classList.add('link-'+(stage.status||'supported'));
-  const method=scope?.qualified||stage.label;
-  b.append(el('span','workflow-stage-number',String(index+1).padStart(2,'0')),el('strong','workflow-stage-title',stage.label));
-  // Unresolved calls sit in their caller's scope; naming it would read like a target.
-  if(!stage.callsite&&method!==stage.label)b.append(el('code','workflow-stage-method',method));
-  // One short note per step; the selected step's panel has the full detail.
-  const note=stage.unreachable?'Unreachable after an unconditional exit':stage.conditional?'Runs only if a condition holds':stage.construction?'Creates an object':(stage.executionContext?.effectiveDeferred||stage.executionContext?.deferred)?'Runs later, if at all':'';
-  if(note)b.append(el('span','workflow-stage-warning',note));
-  if(stage.moduleLink)b.append(el('span','workflow-module-link',stage.moduleLink.from+' → '+stage.moduleLink.to));
-  if(stage.status&&!['supported','source-linked'].includes(stage.status)) b.append(el('span','status '+stage.status,certaintyLabel(stage.status)));
+  const head=el('span','workflow-stage-head');
+  head.append(el('strong','workflow-stage-title',stage.label));
+  const tags=[];
+  if(stageTags[stage.status])tags.push([...stageTags[stage.status],stage.status]);
+  if(stage.conditional)tags.push(['if','Runs only when a condition holds','conditional']);
+  if(runsLater(stage))tags.push(['later','Runs later, if at all','later']);
+  if(stage.construction)tags.push(['new object','Creates an object; its initializer runs','construct']);
+  if(stage.unreachable)tags.push(['unreachable','Written after an unconditional exit','unreachable']);
+  for(const [label,title,kind] of tags){const tag=el('span','stage-tag tag-'+kind,label);tag.title=title;head.append(tag);}
+  // One location for every step: the line that makes the call (the entry: its definition).
+  const span=index?(stage.evidence?.[0]?.span||stage.span):scope?.span;
+  b.append(head);
+  if(span){const place=el('span','workflow-stage-place',(index?'called at ':'')+span.file.split('/').slice(-2).join('/')+':'+span.start);place.title=span.file+':'+span.start;b.append(place);}
   return b;
 }
 async function selectWorkflowStage(id) {
@@ -166,8 +193,7 @@ async function openWorkflowCandidate(stage,id) {
 function renderWorkflowContext() {
   const host=$('#workflowContext');host.replaceChildren();
   const workflow=workflowState.profile,stage=workflow?.stages.find(s=>s.id===workflowState.stage);if(!stage)return;
-  const index=workflow.stages.indexOf(stage);
-  const kicker=el('div','workflow-context-kicker','STEP '+(index+1)+' OF '+workflow.totalStages);
+  const kicker=el('div','workflow-context-kicker','Call map');
   if(stage.status&&!['supported','source-linked'].includes(stage.status))kicker.append(el('span','certainty '+stage.status,certaintyLabel(stage.status)));
   host.append(kicker);
   const methods=stage.methods||[];
@@ -175,7 +201,7 @@ function renderWorkflowContext() {
   if(stage.unreachable)host.append(el('p','status unknown','Written after an unconditional exit, so it cannot run from here.'));
   if(stage.conditional)host.append(el('p','workflow-intro','Runs only when its condition holds.'));
   for(const guard of stage.guards||[])host.append(el('p','workflow-context-data',workflowGuardText(guard)));
-  if(stage.executionContext?.effectiveDeferred||stage.executionContext?.deferred)host.append(el('p','workflow-intro','This body runs later, if at all; creating it does not run it.'));
+  if(runsLater(stage))host.append(el('p','workflow-intro','This body runs later, if at all; creating it does not run it.'));
   if(stage.reason && stage.status!=='supported')host.append(el('p','workflow-intro',stage.reason));
   if(stage.construction)host.append(el('p','workflow-intro','Constructing an object runs its initializer, not its class body.'));
   const candidates=stage.construction?(stage.constructorCandidates||[]):stage.status==='possible'?methods:[];
@@ -191,7 +217,7 @@ function renderWorkflowContext() {
   if(link) why.append(button('Why is this linked?','workflow-link-evidence',()=>inspectWorkflowLink(link)));
   if(stage.construction && stage.scope) why.append(button('Go to class →','scope-jump',()=>openWorkflowCandidate(stage,stage.scope)));
   if(why.childNodes.length)host.append(why);
-  if(!methods.includes(state.scope)) host.append(el('div','workflow-inspected-method',stage.callsite&&state.scope===(stage.callerScope||stage.evidence?.[0]?.scope)?'Showing '+scopeName(state.scope)+', where this call is written.':'The call map still has step '+(index+1)+' selected.'));
+  if(!methods.includes(state.scope)) host.append(el('div','workflow-inspected-method',stage.callsite&&state.scope===(stage.callerScope||stage.evidence?.[0]?.scope)?'Showing '+scopeName(state.scope)+', where this call is written.':'The call map still has '+stage.label+' selected.'));
 }
 function syncWorkflowMethod() {
   if(workflowState.initialized&&workflowState.mode==='workflow') renderWorkflowContext();

@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "threadline-review"
-version = "0.2.0b3"
-description = "Visual, source-backed review of Python workflows before execution"
+version = "0.2.0b4"
+description = "Threadline: Python code review, call graphs, and data flow visualization from source"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {file = "LICENSE"}
 authors = [{name = "Threadline contributors"}]
 classifiers = ["Development Status :: 4 - Beta", "Programming Language :: Python :: 3", "License :: OSI Approved :: MIT License"]
-keywords = ["python", "static-analysis", "code-review", "visualization"]
+keywords = ["threadline", "python", "static-analysis", "code-review", "call-graph", "data-flow", "code-visualization", "html-report"]
 
 [project.urls]
 Homepage = "https://github.com/Raman369AI/threadline"

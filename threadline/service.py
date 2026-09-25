@@ -357,7 +357,7 @@ class SnapshotStore:
         for scope in scopes:
             row = modules.setdefault(scope['file'], {'file': scope['file'], 'name': scope['module'], 'total': 0})
             row['total'] += 1
-        rows = sorted((row for row in modules.values() if matches(row['name']+' '+row['file'])), key=lambda row: (row['name'], row['file']))
+        rows = sorted((row for row in modules.values() if matches(row['name']+' '+row['file'])), key=lambda row: (testlinks.is_test_file(row['file']), row['name'], row['file']))
         return {'snapshotId': model['snapshotId'], 'modules': _page(rows, cursor, limit)}
 
     def find_symbols(self, query: str = "", *, snapshot_id: str | None = None,

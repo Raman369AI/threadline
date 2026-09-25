@@ -51,6 +51,12 @@ def main():
         assert workflow['schemaVersion'] == '1.2', workflow
         assert workflow['analysis']['complete'] is True, workflow
         assert len(workflow['result']['stages']['items']) >= 3, workflow
+        html = root / 'review.html'
+        subprocess.run([str(cli), 'review', str(target), '--output', str(html), '--no-open'],
+                       cwd=root, env=env, check=True, timeout=60)
+        document = html.read_text(encoding='utf-8')
+        assert 'threadline-snapshot' in document and 'threadlineOffline' in document
+        assert '<script src=' not in document and '<link rel="stylesheet"' not in document
         with (root / 'server.log').open('w+') as log:
             process = subprocess.Popen([str(cli), 'review', str(target), '--port', '0', '--no-open'],
                                        cwd=root, env=env, stdout=log, stderr=log, text=True)
@@ -64,14 +70,14 @@ def main():
                     if process.poll() is not None: raise RuntimeError('Packaged server exited before startup')
                     time.sleep(.05)
                 assert url, 'Packaged server did not start: '+(root/'server.log').read_text()
-                for path, expected in [('', b'Threadline'), ('app.js', b'/api/summary'), ('workflow.js', b'loadCallWorkflow'), ('tests.js', b'/api/tests'), ('method.js', b'/api/overview'), ('dataflow_ui.js', b'/api/dataflow'), ('styles.css', b'body'), ('api/summary', b'snapshotId')]:
+                for path, expected in [('', b'Threadline'), ('app.js', b'/api/summary'), ('workflow.js', b'loadCallWorkflow'), ('method.js', b'toggleHelp'), ('review_data.js', b'/api/dataflow'), ('codefirst.js', b'/api/tests'), ('styles.css', b'body'), ('api/summary', b'snapshotId')]:
                     with urllib.request.urlopen(url + path, timeout=5) as response:
                         assert response.status == 200
                         assert expected in response.read(), path
             finally:
                 process.terminate()
                 process.wait(timeout=10)
-        print('PASS: clean wheel install, CLI workflow, loopback server, and bundled assets')
+        print('PASS: clean wheel install, CLI workflow, standalone HTML, loopback server, and bundled assets')
 
 
 if __name__ == '__main__':

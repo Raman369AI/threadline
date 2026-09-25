@@ -1,28 +1,13 @@
 'use strict';
 let model;
 const $ = selector => document.querySelector(selector);
-const state = { scope: null, focus: null, stack: [], selectedElement: null, sourceWhole: false, wrap: true };
+const state = { scope: null, stack: [] };
 const format = value => Number(value).toLocaleString();
-function el(tag, cls, content) { const node = document.createElement(tag); if (cls) node.className = cls; if (cls === 'op-glyph') node.setAttribute('aria-hidden','true'); if (content !== undefined) node.textContent = content; return node; }
+function el(tag, cls, content) { const node = document.createElement(tag); if (cls) node.className = cls; if (content !== undefined) node.textContent = content; return node; }
 function button(label, cls, handler) { const b = el('button', cls, label); b.type = 'button'; b.addEventListener('click', handler); return b; }
-function walk(nodes) { return nodes.flatMap(node => [node, ...node.branches.flatMap(branch => walk(branch.nodes))]); }
 function scopeName(id) { return model.scopes[id]?.qualified || id; }
 const certaintyLabels = {supported:'Calls', possible:'Probably calls', external:'Library', unknown:"Can't tell"};
 function certaintyLabel(status) { return certaintyLabels[status] || status; }
-// The analyzer's labels are also CLI data; reword only what the browser shows.
-const plainPhrases = [
-  [/^Await: suspension \/ resumption point$/, 'Waits here (await)'],
-  [/^Yield: suspension \/ resumption point$/, 'Hands a value back here (yield)'],
-  [/^YieldFrom: suspension \/ resumption point$/, 'Hands values back here (yield from)'],
-  [/^await: suspension and resumption; exceptions can propagate$/, 'Waits for the result; errors pass through.'],
-  [/^possible effect: /, 'May change state: '],
-  [/^Short-circuit and: /, 'Stops at the first false value: '],
-  [/^Short-circuit or: /, 'Stops at the first true value: '],
-  [/^Chained comparison: stop on first false comparison$/, 'Chained comparison: stops at the first false part'],
-  [/^Lambda definition; body is deferred$/, 'Defines a lambda; its body runs when called'],
-  [/^Deferred generator: /, 'Generator, runs as it is read: '],
-];
-function plain(text) { for (const [pattern, words] of plainPhrases) if (pattern.test(text)) return text.replace(pattern, words); return text; }
 function announce(message) { $('#announcement').textContent = message; }
 function clearError(key) {
   const host = $('#reviewError');
@@ -39,10 +24,10 @@ function reportError(error, retry, key) {
   host.append(button('Dismiss', 'quiet-button', () => clearError(key)));
   host.hidden = false;
 }
-function icon(kind) { return ({If:'◇',Match:'◇',Assert:'◇',For:'↻',AsyncFor:'↻',While:'↻',Try:'⑂',TryStar:'⑂',Return:'↩',Raise:'↗',Break:'↗',Continue:'↻',With:'▱',AsyncWith:'▱',FunctionDef:'ƒ',AsyncFunctionDef:'ƒ',ClassDef:'C',Import:'↓',ImportFrom:'↓'})[kind] || '·'; }
 
-let sessionToken = '', navigationRequest = 0, selectionRequest = 0, sourceRequest = 0, methodSourceShown = null, methodSourceText = '';
+let sessionToken = '', navigationRequest = 0, selectionRequest = 0;
 async function api(path, params={}, options={}) {
+  if (window.threadlineOffline) return window.threadlineOffline(path, params);
   const response = await fetch(path + '?' + new URLSearchParams(params), options);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
@@ -55,29 +40,9 @@ async function ensureScope(id, captured=model) {
   captured.scopes[id] = {...page.scope, flow:page.flow.items, nextCursor:page.flow.nextCursor};
   return captured.scopes[id];
 }
-function appendScopeFlow(host, scope, ancestry, depth) {
-  host.append(renderList(scope.flow, scope, ancestry, depth));
-  if (scope.nextCursor !== null) {
-    const more = button('Load more statements →', 'quiet-button', async () => {
-      const captured = model; more.disabled = true;
-      try {
-        const page = await api('/api/scope', {symbol:scope.id, snapshot:captured.snapshotId, cursor:scope.nextCursor, limit:20, shallow:1});
-        if (captured !== model) return;
-        for (const [key, value] of Object.entries(page.references)) captured.scopes[key] ||= value;
-        const canonical=captured.scopes[scope.id];
-        const known=new Set(canonical.flow.map(node=>node.id));
-        canonical.flow.push(...page.flow.items.filter(node=>!known.has(node.id)));canonical.nextCursor=page.flow.nextCursor;
-        scope.nextCursor=page.flow.nextCursor;
-        if(canonical.nextCursor===null&&state.scope===scope.id)$('#flow .scope-end').textContent='End · returns None if it gets here.';
-        clearError('statements');
-        const extra=el('div'); more.replaceWith(extra);
-        appendScopeFlow(extra, {...scope, flow:page.flow.items}, ancestry, depth);
-      } catch(error) {if(captured===model) reportError(error,()=>more.click(),'statements'); more.disabled=false;}
-    });
-    host.append(more);
-  }
-}
 const startLabels={http:'HTTP routes',commands:'CLI commands',tasks:'Tasks & callbacks',methods:'Functions & methods'};
+const emptyStartLabels={http:'No HTTP routes in this snapshot.',commands:'No CLI commands in this snapshot.',tasks:'No tasks or callbacks in this snapshot.',methods:'No functions or methods in this snapshot.'};
+const plural=(count,one,many)=>count+' '+(count===1?one:many);
 let startRequest=0;
 function startButton(row) {
   const item=button('', 'start-item',()=>startReview(row.id));item.dataset.scope=row.id;
@@ -99,9 +64,9 @@ async function loadStartGroup(category,host,cursor=0,method='') {
 function renderStartGroup(category,host,page,cursor=0,method='') {
   host.replaceChildren();
   for(const row of page.items)host.append(startButton(row));
-  if(!page.total)host.append(el('p','source-peek','No '+startLabels[category].toLowerCase()+' in this snapshot.'));
+  if(!page.total){host.append(el('p','source-peek',emptyStartLabels[category]));return;}
   const controls=el('div','catalog-pagination');
-  controls.append(el('span','source-peek',page.total?`${cursor+1}–${cursor+page.items.length} of ${page.total}`:'0 results'));
+  controls.append(el('span','source-peek',`${cursor+1}–${cursor+page.items.length} of ${page.total}`));
   if(cursor)controls.append(button('Previous','quiet-button',()=>loadStartGroup(category,host,Math.max(0,cursor-20),method)));
   if(page.nextCursor!==null)controls.append(button('More '+startLabels[category].toLowerCase(),'quiet-button',()=>loadStartGroup(category,host,page.nextCursor,method)));
   host.append(controls);
@@ -132,13 +97,13 @@ async function modulePicker(host, initialFile=null) {
         if(file)list.append(startButton(row));
         else {
           const item=button('','start-item module-item',()=>selectModule(row.file));item.dataset.file=row.file;
-          item.append(el('strong','',row.name),el('span','start-method',row.file),el('span','module-count',row.total+' functions & methods'));
+          item.append(el('strong','',row.name),el('span','start-method',row.file),el('span','module-count',plural(row.total,'function or method','functions & methods')));
           list.append(item);
         }
       }
-      if(!page.total)list.append(el('p','source-peek',file?'No matching methods.':'No matching modules.'));
+      if(!page.total){list.append(el('p','source-peek',file?'No matching methods.':'No matching modules.'));return;}
       const controls=el('div','catalog-pagination');
-      controls.append(el('span','source-peek',page.total?`${cursor+1}–${cursor+page.items.length} of ${page.total}`:'0 results'));
+      controls.append(el('span','source-peek',`${cursor+1}–${cursor+page.items.length} of ${page.total}`));
       if(cursor)controls.append(button('Previous','quiet-button',()=>loadModules(Math.max(0,cursor-20))));
       if(page.nextCursor!==null)controls.append(button(file?'More methods':'More modules','quiet-button',()=>loadModules(page.nextCursor)));
       list.append(controls);
@@ -184,7 +149,9 @@ async function showStartPage(page=null) {
     const result=await api('/api/starts',{snapshot:captured.snapshotId,limit:20});
     if(captured!==model || request!==startRequest)return;
     const requested=page || new URLSearchParams(location.search).get('page');
-    catalogPage=Object.hasOwn(catalogTitles,requested)?requested:result.counts.http?'endpoints':result.counts.commands+result.counts.tasks?'commands':'methods';
+    const available={endpoints:result.counts.http>0,commands:result.counts.commands+result.counts.tasks>0,methods:true};
+    $('#endpointsTab').hidden=!available.endpoints;$('#commandsTab').hidden=!available.commands;
+    catalogPage=Object.hasOwn(catalogTitles,requested)&&available[requested]?requested:result.counts.http?'endpoints':result.counts.commands+result.counts.tasks?'commands':'methods';
     const url=new URL(location.href);url.hash='';url.searchParams.set('page',catalogPage);if(page || catalogPage!=='methods')url.searchParams.delete('module');history.replaceState(null,'',url);
     setWorkflowMode('starts');
     $('#startProject').textContent=model.project+' · '+model.coverage.files+' Python files';
@@ -233,41 +200,22 @@ async function chooseScope(id, opts={}) {
   clearError('selection');closeComparison();
   $('.workspace').classList.remove('choosing');$('#startPage').hidden=true;$('#workflowTab').hidden=false;
   if (!opts.keepStack) state.stack = [];
-  state.scope = id; if(workflowState.mode==='starts')setWorkflowMode('workflow'); state.focus = null; state.sourceWhole = false; state.selectedElement = null;
+  state.scope = id; if(workflowState.mode==='starts')setWorkflowMode('workflow');
   const scope = model.scopes[id];
-  $('#scopePath').textContent = scope.file + (scope.parent && model.scopes[scope.parent] && model.scopes[scope.parent].kind !== 'module' ? ' / ' + scopeName(scope.parent) : '');
   $('#methodName').textContent = scope.kind === 'module' ? scope.module + ' (module body)' : scope.qualified;
-  $('.method-details').open = false;
-  $('#scopeKind').textContent = scope.kind;
-  $('#scopeSummary').textContent = `${scope.stats.calls} calls · ${scope.stats.branches} branch arms · ${scope.stats.unresolved} Threadline can't trace.`;
-  if (scope.decorators.length) $('#scopeSummary').append(document.createTextNode(' Decorators: ' + scope.decorators.join(', ')));
-  $('#flow').replaceChildren();
-  renderPathBar();
-  appendScopeFlow($('#flow'), scope, [scope.id], 0);
-  $('#flow').append(el('div', 'scope-end', ['module','class'].includes(scope.kind) ? 'End of body.' : (scope.nextCursor!==null?'More steps load above.':'End · returns None if it gets here.')));
-  renderPayloads(); navigation(); loadOverview(id);
-  if (typeof prepareRelatedTests === 'function') prepareRelatedTests(id);
-  if (typeof loadDataflow === 'function' && !['module','class'].includes(scope.kind)) loadDataflow(id);
-  else {$('#dataflowOverview').replaceChildren(el('p','source-peek','Select a function or method for data flow.'));$('#dataModelContent').replaceChildren(el('p','source-peek','No selected method data.'));}
-  await showSource(scope.span, scope.qualified, '');
+  renderPathBar(); navigation();
+  await renderCodeFirst(id);
   if(request!==selectionRequest || captured!==model)return false;
-  $('.review').scrollTop = 0;
-  const activeNav = $('#navigation .nav-item.active');
-  if (activeNav) $('#navigation').scrollTop += activeNav.getBoundingClientRect().top - $('#navigation').getBoundingClientRect().top - 100;
+  if (!opts.keepScroll) $('.review').scrollTop = 0;
   history.replaceState(null, '', '#' + encodeURIComponent(id));
   if (typeof syncWorkflowMethod === 'function') syncWorkflowMethod(id);
   return true;
 }
 
-async function enterScope(id, call) {
-  const related=$('#relatedTests');
-  const frame = { scope: state.scope, invoker: call.scope || state.scope, scroll: $('.review').scrollTop,
-    codeScroll:$('#sourceCode').scrollTop, dom: [...$('#flow').childNodes], focus: state.focus,
-    destination: call.destination, selectedElement: state.selectedElement, activeElement:document.activeElement,
-    activeNode:document.activeElement?.dataset?.node,
-    relatedOpen:related.open, relatedNodes:[...$('#relatedTestsContent').childNodes],
-    relatedCount:$('#relatedTestsCount').textContent, relatedLabel:related.firstElementChild.firstChild.textContent };
-  state.stack.push(frame);
+// Opening a method keeps where you were; Back restores its highlight and side view.
+async function enterScope(id, call={}) {
+  state.stack.push({scope: state.scope, destination: call.destination, scroll: $('.review').scrollTop,
+    highlight: codeFirst.highlight, beside: codeFirst.beside});
   await chooseScope(id, {keepStack:true});
 }
 async function returnTo(index) {
@@ -277,219 +225,13 @@ async function returnTo(index) {
 }
 async function returnToCaller() {
   const frame = state.stack.pop(); if (!frame) return;
-  if(!await chooseScope(frame.scope, {keepStack:true}))return;
-  state.focus = frame.focus; state.selectedElement = frame.selectedElement;
-  $('#flow').replaceChildren(...frame.dom); renderPayloads(); renderPathBar();
-  if(typeof loadDataflow==='function')await loadDataflow(frame.scope);
-  $('#relatedTestsContent').replaceChildren(...frame.relatedNodes);
-  $('#relatedTestsCount').textContent=frame.relatedCount;
-  $('#relatedTests').firstElementChild.firstChild.textContent=frame.relatedLabel;
-  $('#relatedTests').open=frame.relatedOpen;
+  codeFirst.scope = frame.scope; codeFirst.highlight = frame.highlight; codeFirst.beside = frame.beside;
+  if(!await chooseScope(frame.scope, {keepStack:true, keepScroll:true}))return;
   $('.review').scrollTop = frame.scroll;
-  if (frame.focus) await showSource(frame.focus.span, frame.focus.title, frame.focus.details, false, null, frame.focus.snapshotId);
-  $('#sourceCode').scrollTop=frame.codeScroll;
-  if(frame.activeElement?.isConnected)frame.activeElement.focus({preventScroll:true});
-  else if(frame.activeNode)[...$('#dataflowOverview').querySelectorAll('.dataflow-item')].find(item=>item.dataset.node===frame.activeNode)?.focus({preventScroll:true});
-  else frame.selectedElement?.querySelector('button')?.focus({preventScroll:true});
 }
 
-function renderLazyBranch(branch, scope, ancestry, depth, node) {
-  const region=el('details','branch'), summary=el('summary');
-  summary.append(el('span','',branch.label),el('span','branch-count',branch.total+' statements'));
-  region.append(summary);
-  if(branch.note) region.append(el('div','branch-note',branch.note));
-  const contents=el('div');region.append(contents);
-  const captured=model;
-  let cursor=0, loading=false, loaded=false;
-  async function loadPage() {
-    if(loading || captured!==model) return;
-    loading=true;
-    const controls=contents.querySelector('.branch-controls'), hadFocus=Boolean(controls?.contains(document.activeElement));if(controls) controls.remove();
-    const status=el('div','branch-controls');status.append(el('p','source-peek','Loading branch…'));contents.append(status);
-    try {
-      const page=await api('/api/branch',{symbol:scope.id,operation:branch.operation,arm:branch.arm,snapshot:captured.snapshotId,cursor,limit:20});
-      if(captured!==model) return;
-      for(const [id,value] of Object.entries(page.references)) captured.scopes[id] ||= value;
-      const body=renderList(page.flow.items,scope,ancestry,depth);status.replaceWith(body);
-      if(hadFocus && region.isConnected && document.activeElement===document.body)body.querySelector('button')?.focus({preventScroll:true});
-      loaded=true;cursor=page.flow.nextCursor;
-      if(cursor!==null) {
-        const next=el('div','branch-controls');next.append(button('Load more branch statements','quiet-button',loadPage));contents.append(next);
-      }
-    } catch(error) {
-      if(captured!==model) return;
-      const message=el('p','error',error.message);message.setAttribute('role','alert');
-      status.replaceChildren(message,button('Retry branch','quiet-button',loadPage));
-    } finally {loading=false;}
-  }
-  region.addEventListener('toggle',()=>{if(region.open&&!loaded)loadPage();});
-  return region;
-}
-function renderList(nodes, scope, ancestry, depth) {
-  const list = el('div','flow-list');
-  if (!nodes.length) { list.append(el('div','branch-note','Continue.')); return list; }
-  for (const node of nodes) list.append(renderNode(node, scope, ancestry, depth));
-  return list;
-}
-function renderNode(node, scope, ancestry, depth) {
-  const host = el('section', 'operation' + (node.branches.length ? ' branching' : '') + (node.terminal ? ' terminal' : '') + (node.unreachable ? ' unreachable' : '') + (node.note ? ' source-note' : ''));
-  host.dataset.node = node.id; host.dataset.scope = scope.id;
-  let alternative = null;
-  const card = el('div','op-card'); const head = button('', 'op-head', () => selectNode(node, scope, host));
-  head.title = 'Inspect original source'; head.append(el('span','op-glyph',icon(node.kind)),el('span','op-label',node.label),el('span','op-line',`L${node.span.start}`));
-  card.append(head);
-  if (node.unreachable) card.append(el('div','op-description','Unreachable after the preceding unconditional exit in this block.'));
-  if (node.unsupported) card.append(el('div','error',"Threadline doesn't model this kind of statement; read its code."));
-  if (node.expression) card.append(el('div','op-description expression-value',node.expression));
-  if (node.writes.length && !['Assign','AnnAssign'].includes(node.kind)) card.append(el('div','op-description', 'Writes ' + node.writes.join(', ')));
-  if (node.effects.length) card.append(el('div','effects',node.effects.map(plain).join(' · ')));
-  if (node.definition) {
-    const definition = model.scopes[node.definition];
-    const row = el('div','op-description');
-    row.append(button((definition.kind === 'class' ? 'Go to class' : 'Go to definition') + ' →', 'scope-jump', () => enterScope(definition.id, {destination:'definition site'})));
-    card.append(row);
-  }
-  if (node.decisions.length) {
-    const decisions = el('div','expression-decisions');
-    for (const decision of node.decisions) {
-      const box = el('div','expression-decision');
-      box.append(button(plain(decision.label), '', () => showSource(decision.span, plain(decision.label), (decision.alternatives || []).join(' · '))));
-      if (decision.alternatives) box.append(el('div','decision-arms',decision.alternatives.join(' / ')));
-      if (decision.target) box.append(button('Go to lambda →','scope-jump',()=>enterScope(decision.target,{destination:'lambda definition'})));
-      decisions.append(box);
-    }
-    card.append(decisions);
-  }
-  if (node.calls.length) {
-    const calls = el('div','calls');
-    for (const call of node.calls) calls.append(renderCall(call, scope, ancestry, depth));
-    card.append(calls);
-  }
-  if (node.branches.length) {
-    const branches = el('div','branches');
-    for (const branch of node.branches) {
-      if(branch.total!==undefined && branch.total>0) {branches.append(renderLazyBranch(branch,scope,ancestry,depth,node));continue;}
-      if (node.kind === 'If' && branch.label === 'False' && branch.nodes.length === 1 && branch.nodes[0].kind === 'If' && branch.nodes[0].span.col === node.span.col) { alternative = branch.nodes[0]; continue; }
-      if (!branch.nodes.length) { branches.append(button(branch.label + ' → ' + (branch.note || 'continue'), 'branch-outcome',()=>showSource(node.span,node.label,branch.label + ': ' + (branch.note || 'continue')))); continue; }
-      const region = el('details','branch'); region.open = true;
-      const summary = el('summary'); summary.append(el('span','',branch.label),el('span','branch-count',`${walk(branch.nodes).length} operations`));
-      region.append(summary);
-      if (branch.note) region.append(el('div','branch-note',branch.note));
-      if (branch.nodes.length) region.append(renderList(branch.nodes, scope, ancestry, depth)); branches.append(region);
-    }
-    card.append(branches);
-  }
-  host.append(card);
-  if (alternative) {
-    const continuation = el('div','elif-continuation');
-    continuation.append(el('div','branch-note','False → test the next condition. A taken arm skips remaining alternatives.'),renderNode(alternative,scope,ancestry,depth));
-    host.append(continuation);
-  }
-  return host;
-}
-function selectNode(node, scope, host) {
-  state.selectedElement?.classList.remove('selected'); state.selectedElement = host; host.classList.add('selected');
-  const details = [node.kind, node.reads.length ? 'Reads: ' + node.reads.join(', ') : '', node.writes.length ? 'Writes: ' + node.writes.join(', ') : '', ...node.effects, node.terminal ? (node.kind === 'Return' ? 'Leaves this function; enclosing cleanup still applies.' : 'Transfers control; inspect enclosing loops and exception/cleanup regions.') : ''].filter(Boolean).join('\n');
-  showSource(node.span,node.label,details); announce(`Source selected: ${scope.file}, line ${node.span.start}`);
-}
 
-function renderCall(call, scope, ancestry, depth) {
-  const host = el('div','call'); host.dataset.call = call.id;
-  const row = el('div','call-row'); row.append(el('span','call-title',call.name + (call.execution?.startsWith('deferred') ? ' · deferred' : call.execution?.startsWith('background') ? ' · background' : call.awaited ? ' · await' : '') + (call.conditional ? ' · conditional' : '')), el('span','status '+call.status,certaintyLabel(call.status)));
-  const contents = el('div'); contents.hidden = true;
-  const toggle = button(call.targets.length ? 'Show inside' : 'Why?', 'call-open', async () => {
-    const opening = contents.hidden;
-    if (opening && !contents.childNodes.length) {
-      const hadFocus=document.activeElement===toggle;
-      toggle.disabled=true;
-      try {await fillCall(contents,call,scope,ancestry,depth);clearError('call');}
-      catch(error){contents.replaceChildren();if(host.isConnected) reportError(error,()=>toggle.click(),'call');return;}
-      finally {toggle.disabled=false;if(hadFocus && host.isConnected && document.activeElement===document.body)toggle.focus({preventScroll:true});}
-    }
-    contents.hidden = !opening; toggle.textContent = opening ? 'Hide' : call.targets.length ? 'Show inside' : 'Why?'; toggle.setAttribute('aria-expanded', String(opening));
 
-  }); toggle.setAttribute('aria-expanded','false'); toggle.dataset.closedLabel = call.targets.length ? 'Show inside' : 'Why?'; row.append(toggle); host.append(row,contents); return host;
-}
-async function fillCall(host,call,scope,ancestry,depth) {
-  const captured=model;
-  for(const id of call.targets) await ensureScope(id,captured);
-  if(captured!==model) return;
-  const info = el('div','call-detail');
-  if (call.execution && call.execution !== 'ordinary call') host.append(el('div','call-execution',plain(call.execution)));
-  info.append(document.createTextNode(call.reason + '. '),button('Show call','scope-jump',()=>showSource(call.span,call.expression,call.reason + '\nReturn destination: ' + call.destination)));
-  host.append(info);
-  if (!call.targets.length) {
-    host.append(el('div','call-detail','Arguments: ' + (call.arguments.join(' · ') || '(none)')));
-    host.append(el('div','call-detail','Result goes to: ' + call.destination + '.'));
-    return;
-  }
-  for (const targetId of call.targets) {
-    const target = model.scopes[targetId], box = el('div','call-expansion');
-    const header = el('div','callee-header'); header.append(el('span','',target.qualified + ' · ' + target.file + ':' + target.span.start)); box.append(header);
-    const map = el('div','mapping');
-    for (const pair of call.bindings[targetId] || []) {
-      const row = el('div','mapping-row');
-      row.append(el('span','',pair.argument + ' → '),button(pair.parameter,'',()=>{showSource(target.span,target.qualified,'Parameter mapping from '+call.span.file+':'+call.span.start+' · '+pair.argument+' → '+pair.parameter);}),el('span','',pair.certainty === 'syntax' ? '' : '(' + pair.certainty + ')')); map.append(row);
-    }
-    if (!map.childNodes.length) map.textContent = 'No explicit parameters to map.';
-    box.append(map);
-    if (ancestry.includes(targetId)) {
-      box.append(el('div','recursive-note','↻ Recursive reference to ' + target.qualified + '. Body is already open above; this call returns to ' + call.destination + '.'));
-      box.append(button('Go to →','scope-jump',()=>enterScope(targetId,call)));
-    } else if (depth >= 1) {
-      box.append(el('div','call-detail',`${target.stats.calls} calls · ${target.stats.branches} branch arms.`));
-      box.append(button('Go to →','quiet-button',()=>enterScope(targetId,call)));
-    } else if (target.kind === 'class') {
-      box.append(el('div','call-detail','Creates an object of this class; its __init__ usually runs.'));
-      const constructor = Object.values(model.scopes).find(s=>s.parent === targetId && s.name === '__init__');
-      if (constructor) box.append(button('Go to __init__ →','quiet-button',()=>enterScope(constructor.id,call)));
-      box.append(button('Go to class →','scope-jump',()=>enterScope(targetId,call)));
-    } else {
-      header.append(button('Show code','quiet-button',()=>showSource(target.span,target.qualified,'')));
-      appendScopeFlow(box,target,[...ancestry,targetId],depth+1);
-    }
-    box.append(el('div','resume',(call.execution?.startsWith('deferred') ? '↩ Produces a deferred object → ' : '↩ Returns → ') + call.destination));
-    host.append(box);
-  }
-}
-
-function renderPayloads() {
-  const scope = model.scopes[state.scope], host = $('#payloadSummary');
-  host.replaceChildren();
-  $('#suppliedInputs').textContent = '';
-  $('#returnDetails').textContent = '';
-  host.hidden = ['module', 'class'].includes(scope.kind);
-  if (host.hidden) return;
-  const input = el('div', 'payload-block'), output = el('div', 'payload-block');
-  input.append(el('span', 'payload-label', 'Comes in'));
-  const params = scope.params.filter(p => !['self', 'cls'].includes(p.name));
-  const supplied = params.filter(p => /^Depends\(/.test(p.default || ''));
-  $('#suppliedInputs').textContent = supplied.length ? 'Provided by the app: ' + supplied.map(p => p.name + (p.annotation ? ': ' + p.annotation : '')).join(', ') : '';
-  for (const param of params.filter(p => !supplied.includes(p))) {
-    const prefix = param.kind === 'varargs' ? '*' : param.kind === 'kwargs' ? '**' : '';
-    input.append(el('code', 'payload-value', prefix + param.name + (param.annotation ? ': ' + param.annotation : '')));
-  }
-  if (params.length === supplied.length) input.append(el('span', 'payload-empty', supplied.length ? 'Provided by the app' : 'No input'));
-  output.append(el('span', 'payload-label', 'Goes out'));
-  const boundary = scope.output;
-  $('#returnDetails').textContent = boundary?.returns.length ? 'Return expressions: ' + [...new Set(boundary.returns)].join(' | ') : '';
-  if (boundary?.responseModel && boundary.responseModel !== 'None') {
-    output.append(el('code', 'payload-value', boundary.responseModel));
-    output.append(el('span', 'payload-empty', 'Declared response'));
-  } else if (scope.generator) {
-    output.append(el('code', 'payload-value', boundary?.annotation || (scope.async ? 'Async generator' : 'Generator')));
-  } else if (boundary?.annotation) {
-    output.append(el('code', 'payload-value', boundary.annotation));
-  } else if (boundary?.returns.length) {
-    const values = [...new Set(boundary.returns)];
-    const simple = values.every(v => /^[\w.]+$/.test(v));
-    output.append(el('code', 'payload-value', simple ? values.join(' or ') : 'Type not declared'));
-    output.append(el('span', 'payload-empty', 'From return statements'));
-  } else {
-    output.append(el('span', 'payload-empty', 'No explicit return value'));
-  }
-  host.append(input, output);
-}
 function escaped(str) { return str.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function syntax(line) {
   const regex = /#[^\n]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:async|await|def|class|return|if|elif|else|raise|try|except|finally|from|import|for|while|with|as|match|case|in|None|True|False|not|and|or|yield|break|continue|assert|lambda|pass)\b|\b\d+(?:\.\d+)?\b/g;
@@ -502,84 +244,6 @@ function codeLine(number, value, marked=false) {
   const content=el('span','line-content');content.innerHTML=syntax(value)||' ';
   line.append(el('span','line-number',String(number)),content);
   return line;
-}
-function markCodeRange(host, span, scroll=true) {
-  const lines=host.querySelectorAll('.code-line');
-  for(const line of lines)line.classList.toggle('focus',Boolean(span && Number(line.dataset.line)>=span.start && Number(line.dataset.line)<=span.end));
-  const first=host.querySelector('.code-line.focus');
-  if(first && scroll)host.scrollTop=Math.max(0,first.offsetTop-host.offsetTop-45);
-}
-function methodSourceControls(){
-  const controls=el('div','source-peek source-controls');
-  controls.append(button('Copy method','scope-jump',async()=>{
-    try{await navigator.clipboard.writeText(methodSourceText);announce('Method source copied');}
-    catch{announce('Clipboard unavailable; select and copy the source.');}
-  }));
-  controls.append(button(state.wrap?'Unwrap lines':'Wrap lines','scope-jump',()=>{
-    state.wrap=!state.wrap;$('#sourceCode').classList.toggle('wrap-code',state.wrap);
-    controls.lastElementChild.textContent=state.wrap?'Unwrap lines':'Wrap lines';
-  }));
-  return controls;
-}
-async function showSource(span,title,details='',preserveScroll=false,pageStart=null,snapshotId=null) {
-  const request=++sourceRequest, captured=model;
-  state.focus={span,title,details,snapshotId};
-  const scope=captured?.scopes[state.scope], code=$('#sourceCode'), info=$('#sourceDetails');
-  if(!scope)return;
-  if(['module','class'].includes(scope.kind)){
-    const start=Math.max(scope.span.start,pageStart||scope.span.start),end=Math.min(scope.span.end,start+199);
-    try{
-      const result=await api('/api/source',{snapshot:captured.snapshotId,file:scope.file,start,end});
-      if(request!==sourceRequest||captured!==model)return;
-      code.replaceChildren(...result.source.split('\n').map((value,index)=>codeLine(start+index,value)));
-      $('#sourceFile').textContent=scope.file;$('#sourceContext').textContent=`${scope.qualified} · selected ${scope.kind} source`;
-      info.replaceChildren();
-      if(start>scope.span.start)info.append(button('Previous source lines','scope-jump',()=>showSource(span,title,details,false,Math.max(scope.span.start,start-200))));
-      if(end<scope.span.end)info.append(button('Next source lines','scope-jump',()=>showSource(span,title,details,false,end+1)));
-      $('#snapshotLabel').textContent='Snapshot '+captured.snapshotId.slice(0,8);
-    }catch(error){if(request===sourceRequest&&captured===model)code.replaceChildren(el('p','error',error.message));}
-    return;
-  }
-  const within=(!snapshotId || snapshotId===captured.snapshotId) && span.file===scope.span.file && span.start>=scope.span.start && span.end<=scope.span.end;
-  const focusRange=within && !(span.start===scope.span.start && span.end===scope.span.end)?span:null;
-  info.replaceChildren();
-  if(details)for(const line of details.split('\n').filter(Boolean))info.append(el('div','',line));
-  if(!within){
-    info.prepend(el('p','source-peek',`${title} · ${span.file}:${span.start}${span.end===span.start?'':'–'+span.end}. This evidence is outside the selected method.`));
-    const target=Object.values(captured.scopes).find(item=>item.span?.file===span.file && item.span.start<=span.start && item.span.end>=span.end);
-    if(target && target.id!==scope.id)info.append(button('Go to '+target.qualified+' →','scope-jump',()=>enterScope(target.id,{scope:scope.id,destination:'source evidence'})));
-    else info.append(button('Show exact source here','scope-jump',async()=>{
-      const excerpt=el('div','reference-excerpt');excerpt.textContent='Loading source…';info.append(excerpt);
-      try{const result=await api('/api/source',{snapshot:snapshotId||captured.snapshotId,file:span.file,start:span.start,end:Math.min(span.end,span.start+49)});
-        if(captured!==model || !excerpt.isConnected)return;
-        excerpt.replaceChildren(...result.source.split('\n').map((value,index)=>codeLine(span.start+index,value)));
-      }catch(error){excerpt.textContent=error.message;}
-    }));
-  }
-  const key=captured.snapshotId+'|'+scope.id;
-  if(methodSourceShown===key && code.childElementCount){
-    markCodeRange(code,focusRange,!preserveScroll && within);
-    info.append(methodSourceControls());
-    return;
-  }
-  methodSourceShown=null;
-  code.replaceChildren(el('p','source-peek','Loading selected method…'));
-  try {
-    let cursor=0, first=true, sourceLines=[];
-    while(cursor!==null){
-      const result=await api('/api/method-source',{symbol:scope.id,snapshot:captured.snapshotId,cursor,limit:100});
-      if(request!==sourceRequest || captured!==model || state.scope!==scope.id)return;
-      if(first){code.replaceChildren();code.classList.toggle('wrap-code',state.wrap);$('#sourceFile').textContent=scope.file;$('#sourceContext').replaceChildren(el('strong','',scope.qualified),el('div','',`Lines ${result.span.start}–${result.span.end} · selected method only`));first=false;}
-      const fragment=document.createDocumentFragment();
-      for(const row of result.lines.items){sourceLines.push(row);fragment.append(codeLine(row.number,row.text));}
-      code.append(fragment);cursor=result.lines.nextCursor;
-    }
-    methodSourceShown=key;clearError('source');
-    markCodeRange(code,focusRange,!preserveScroll && within);
-    if(!preserveScroll && !within)code.scrollTop=0;
-    methodSourceText=sourceLines.map(row=>row.text).join('\n');
-    info.append(methodSourceControls());$('#snapshotLabel').textContent='Snapshot '+captured.snapshotId.slice(0,8);
-  } catch(error) {if(request===sourceRequest && captured===model){methodSourceShown=null;code.replaceChildren(el('p','error',error.message));reportError(error,()=>showSource(span,title,details,preserveScroll,pageStart,snapshotId),'source');}}
 }
 function analysisStatus() {
   const errors=model.diagnostics?.analysisErrors?.total??model.diagnostics?.parseErrors?.total??0;
@@ -612,7 +276,7 @@ async function showComparison(id, side='working', cursor=0) {
   const host=$('#comparisonPanel');host.hidden=false;
   $('.workspace').classList.add('comparing');
   const origin=document.activeElement;
-  const close=button('Close comparison','quiet-button',()=>{closeComparison();if(origin?.isConnected && origin!==document.body)origin.focus();else if(state.scope)$('#flow').focus();else $('#methodsTab').focus();});
+  const close=button('Close comparison','quiet-button',()=>{closeComparison();if(origin?.isConnected && origin!==document.body)origin.focus();else if(state.scope)$('#cfCode').focus();else $('#methodsTab').focus();});
   host.replaceChildren(close,el('p','source-peek','Loading comparison…'));
   try {
     const result=await api('/api/compare',{symbol:id,side,snapshot:captured.snapshotId,cursor,limit:40});
@@ -751,12 +415,12 @@ async function load(refresh=false) {
     if(!sessionToken)sessionToken=(await api('/api/session')).token;
     const summary=refresh?await api('/api/reindex',{}, {method:'POST',headers:{'X-Threadline-Token':sessionToken}}):await api('/api/summary', requestedSnapshot?{snapshot:requestedSnapshot}:{});
     const [schemaMajor,schemaMinor]=String(summary.schemaVersion||'').split('.').map(Number);
-    if (schemaMajor!==1 || !Number.isInteger(schemaMinor) || schemaMinor<2 || typeof loadDataflow!=='function') {
+    if (schemaMajor!==1 || !Number.isInteger(schemaMinor) || schemaMinor<2 || typeof renderCodeFirst!=='function') {
       throw new Error('This review server does not support the page. Restart Threadline review, then reload this page.');
     }
     clearError();closeComparison();
     model={...summary,scopes:{},files:{},generatedWorkflows:{}};
-    ++selectionRequest; ++sourceRequest;
+    ++selectionRequest;
     for(const scope of summary.entrypoints.items)model.scopes[scope.id]=scope;
     if(refresh && requestedSnapshot) history.replaceState(null,'',location.pathname+location.hash);
     $('#projectName').textContent=model.project;
@@ -786,9 +450,6 @@ function toggleCoverage() {const h=$('#coveragePanel');h.hidden=!h.hidden;$('#co
 $('#coverageButton').addEventListener('click',toggleCoverage);
 $('#analysisStatus').addEventListener('click',toggleCoverage);
 $('#refreshButton').addEventListener('click',()=>load(true));
-$('#expandBranches').addEventListener('click',()=>{$('#flow').querySelectorAll('details.branch').forEach(d=>d.open=true);});
-$('#collapseCalls').addEventListener('click',()=>{$('#flow').querySelectorAll('.call').forEach(call=>{const content=call.children[1];content.hidden=true;const b=call.querySelector(':scope > .call-row > .call-open');b.textContent=b.dataset.closedLabel;b.setAttribute('aria-expanded','false');});});
-$('#clearFocus').addEventListener('click',()=>{const s=model.scopes[state.scope];if(!s)return;showSource(s.span,s.qualified,'Original source for the selected method.');});
 document.addEventListener('keydown',event=>{if(event.key==='/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){event.preventDefault();$('#search').focus();}if(event.key==='Escape'){if(!$('#coveragePanel').hidden)$('#coverageButton').focus();$('#coveragePanel').hidden=true;$('#coverageButton').setAttribute('aria-expanded','false');}});
 window.addEventListener('hashchange',async()=>{
   if(!model) return;
@@ -798,6 +459,6 @@ window.addEventListener('hashchange',async()=>{
     else if(id!==state.scope)await startReview(id);
   } catch(error) {reportError(error,null,'selection');}
 });
-// Deferred scripts run before DOMContentLoaded, so workflow.js and tests.js
+// Deferred scripts run before DOMContentLoaded, so workflow.js and codefirst.js
 // are defined even when a slow download finishes after the first API reply.
 document.addEventListener('DOMContentLoaded',()=>load(),{once:true});

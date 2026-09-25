@@ -100,7 +100,7 @@ until reviewed against that feedback.
 
 Linux/macOS, Safari, keyboard operation, reflow/zoom, accessibility semantics,
 installation, and corpus checks were verified for the historical commit above. The
-current package is beta version `0.2.0b3`; stable release sign-off remains pending.
+current package is beta version `0.2.0b4`; stable release sign-off remains pending.
 
 See [the release checklist](RELEASE_CHECKLIST.md). Automated evidence checks do not prove
 runtime correctness or constitute a human screen-reader session.

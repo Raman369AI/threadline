@@ -146,7 +146,7 @@ def main():
             wait.until(lambda d:len(d.find_elements(By.CSS_SELECTOR,'#navigation .nav-item'))==1)
             tab_to('#navigation .nav-item');key(Keys.ENTER)
             wait.until(lambda d:d.find_element(By.ID,'methodName').text=='place_order')
-            wait.until(lambda d:d.execute_script("return document.querySelector('#cfCode .cf-call')!==null"))
+            wait.until(lambda d:d.execute_script("return document.querySelector('#cfCode').textContent.includes('def place_order') && document.querySelector('#cfCode .cf-call')!==null && document.querySelector('#cfSummary').textContent.includes('Calls')"))
             check('method_review_default',js("document.querySelector('#cfCode').textContent.includes('def place_order') && document.querySelector('#cfSummary').textContent.includes('Calls')"))
             audit('method')
             # Names, calls, and the side code must all be keyboard reachable.

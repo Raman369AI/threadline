@@ -34,7 +34,7 @@ The `example` directory is included in the source repository. For a PyPI install
 
 ## Share this beta
 
-### Save a review as HTML (development checkout, after 0.2.0b3)
+### Save a review as HTML
 
 ```bash
 threadline review /path/to/python-repository --output review.html
@@ -68,7 +68,7 @@ They install and run it locally:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install threadline_review-0.2.0b3-py3-none-any.whl
+.venv/bin/python -m pip install threadline_review-0.2.0b4-py3-none-any.whl
 .venv/bin/threadline review /path/to/python-repository
 ```
 

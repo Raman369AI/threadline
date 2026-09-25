@@ -220,6 +220,8 @@ def _script_definition(model, target, depth=0):
         return target
     source_file = next((scope['file'] for scope in model['scopes'].values()
                         if scope['kind'] == 'module' and scope['module'] == module), None)
+    if source_file is None:
+        return target
     try:
         tree = ast.parse(model['files'][source_file]['source'])
     except (KeyError, SyntaxError, ValueError):

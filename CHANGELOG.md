@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0b4 — 2026-09-25
 
 - Export the interactive viewer and retained source as one standalone HTML file with `threadline review PROJECT --output review.html`; browse without a server or network connection.
 - Make the `threadline-review` PyPI package name prominent and expand Python code review, call graph, and data flow search metadata.

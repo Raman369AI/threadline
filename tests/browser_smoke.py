@@ -184,8 +184,8 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             baseline_url=js("document.querySelector('[data-category=baselineCallers] a').href")
             command('Page.navigate',{'url':baseline_url})
             for _ in range(100):
-                if js("typeof workflowState!=='undefined' && workflowState.initialized && document.querySelector('#methodName').textContent==='still_calls'"):break
-                time.sleep(.02)
+                if js("typeof workflowState!=='undefined' && workflowState.initialized && document.querySelector('#methodName').textContent==='still_calls' && document.querySelector('#cfCode').textContent.includes('removed(value)')"):break
+                time.sleep(.05)
             checks['baseline_source_and_return']=js("!document.querySelector('#baselineNotice').hidden && document.querySelector('#cfCode').textContent.includes('removed(value)') && model.snapshotId===new URL(location.href).searchParams.get('snapshot')")
             command('Page.navigate',{'url':js("document.querySelector('#baselineNotice a').href")})
             for _ in range(100):

@@ -280,7 +280,8 @@ class _Builder:
         # Imports are references, not input records. Module imports and local
         # imports are indexed only as names; timing and shadowing remain open.
         module_body = getattr(self.tree, 'body', [])
-        body = list(module_body) + list(getattr(self.method, 'body', []))
+        method_body = [] if isinstance(self.method, ast.Lambda) else getattr(self.method, 'body', [])
+        body = list(module_body) + list(method_body)
         for statement in body:
             if isinstance(statement, ast.ImportFrom):
                 if statement.level:
@@ -992,6 +993,10 @@ class _Builder:
                     merged[key] = origins[0]
                     continue
                 label = key if isinstance(key, str) else key[1] if attr == 'fields' else str(key)
+                if attr == 'objects':
+                    # Object keys are internal ids (o2); readers know the object by its value's name.
+                    label = next((self._node_by_id[origin]['name'] for origin in origins
+                                  if origin in self._node_by_id), label)
                 identifier = self._node(label, 'join', node, expression=f'possible values of {label}',
                                         certainty='possible')
                 self._event('join', node, origins, [identifier], label=f'possible {label} after branch',

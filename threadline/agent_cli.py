@@ -72,10 +72,11 @@ def _parser() -> JSONArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    review = sub.add_parser("review")
+    review = sub.add_parser("review", help="open a live review or export a standalone HTML file")
     review.add_argument("project")
     review.add_argument("--port", type=int, default=4173)
     review.add_argument("--no-open", action="store_true")
+    review.add_argument("--output", help="write a standalone HTML review and exit (no server)")
     review.add_argument("--source-root", action="append")
     review.add_argument("--exclude", action="append")
     review.add_argument("--file", action="append", dest="change_files")
@@ -464,6 +465,20 @@ def main(argv: list[str] | None = None, default_command: str | None = None) -> i
                 "use --source-root to narrow the review.",
                 flush=True,
             )
+            if args.output:
+                from .html_export import write_html
+
+                store = SnapshotStore(args.project, source_roots=args.source_root, exclude=args.exclude)
+                store.refresh()
+                if args.base:
+                    store.current["changes"] = review_changes(
+                        store.root, args.base, args.change_files, store,
+                    )
+                output = write_html(store, args.output)
+                print(f"Threadline HTML review: {output}\nOpen {output.as_uri()}", flush=True)
+                if not args.no_open:
+                    webbrowser.open(output.as_uri())
+                return 0
             server = make_server(
                 args.project, port=args.port, base=args.base,
                 source_roots=args.source_root, exclude=args.exclude,

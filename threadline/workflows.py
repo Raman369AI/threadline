@@ -114,7 +114,7 @@ def _declared_scripts(model):
     values = list(table(table(document.get('project')).get('scripts')).values())
     poetry = table(table(table(document.get('tool')).get('poetry')).get('scripts'))
     values.extend(value for value in poetry.values() if isinstance(value, str))
-    return {value.split('[', 1)[0].strip() for value in values if isinstance(value, str)}
+    return {_script_definition(model, value.split('[', 1)[0].strip()) for value in values if isinstance(value, str)}
 
 
 def workflow_catalog(model):
@@ -131,7 +131,7 @@ def workflow_catalog(model):
         scripts = {}
     commands: dict[str, list[str]] = {}
     for name, target in scripts.items():
-        if isinstance(target, str): commands.setdefault(target.split('[', 1)[0].strip(), []).append(name)
+        if isinstance(target, str): commands.setdefault(_script_definition(model, target.split('[', 1)[0].strip()), []).append(name)
     prefixes = model.get('routerPrefixes')
     if prefixes is None:
         # Compatibility for callers supplying an older analysis model.
@@ -192,7 +192,10 @@ def workflow_catalog(model):
         key = f"{scope['module']}:{scope['qualified']}"
         entries.extend(('commands', name) for name in commands.get(key, []))
         if scope['kind'] == 'module':
-            if any('__main__' in node.get('label', '') and '__name__' in node.get('label', '') for node in nodes(scope['flow'])):
+            if scope['module'].endswith('.__main__'):
+                entries.append(('commands', 'python -m '+scope['module'].removesuffix('.__main__')))
+            # `python -m pkg` runs pkg/__main__.py; a main guard in __init__.py never fires that way.
+            elif not scope['file'].endswith('__init__.py') and any('__main__' in node.get('label', '') and '__name__' in node.get('label', '') for node in nodes(scope['flow'])):
                 entries.append(('commands', 'python -m '+scope['module']))
             if not entries: continue
         if not entries: entries = [('methods', scope['qualified'])]
@@ -200,8 +203,41 @@ def workflow_catalog(model):
             rows.append({'id': scope['id'], 'name': scope['qualified'], 'label': label,
                          'category': category, 'file': scope['file'], 'line': scope['span']['start'], 'span': scope['span'],
                          **({'httpMethods': http_methods[label]} if category == 'http' else {})})
-    rows.sort(key=lambda row: (row['category'], row['name'].split('.')[-1].startswith('__'), row['label'].casefold(), row['file'], row['line']))
+    from .testlinks import is_test_file
+    # Project scripts first; test modules with a main guard are runnable but rarely the start a reviewer wants.
+    rows.sort(key=lambda row: (row['category'], is_test_file(row['file']), row['name'].split('.')[-1].startswith('__'), row['label'].casefold(), row['file'], row['line']))
     return rows
+
+
+def _script_definition(model, target, depth=0):
+    """Follow `from x import name` re-exports so `pkg.cli:main` finds the defining module."""
+    import ast
+    module, _, attr = target.partition(':')
+    if not attr or depth > 5:
+        return target
+    head = attr.split('.')[0]
+    if any(scope['module'] == module and scope['qualified'] == attr for scope in model['scopes'].values()):
+        return target
+    source_file = next((scope['file'] for scope in model['scopes'].values()
+                        if scope['kind'] == 'module' and scope['module'] == module), None)
+    try:
+        tree = ast.parse(model['files'][source_file]['source'])
+    except (KeyError, SyntaxError, ValueError):
+        return target
+    package = module if source_file.endswith('__init__.py') else module.rpartition('.')[0]
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        for alias in node.names:
+            if (alias.asname or alias.name) != head:
+                continue
+            base = package
+            for _ in range(max(0, node.level - 1)):
+                base = base.rpartition('.')[0]
+            origin = '.'.join(part for part in ((base if node.level else ''), node.module or '') if part)
+            rest = attr.split('.', 1)[1] if '.' in attr else ''
+            return _script_definition(model, f"{origin}:{alias.name}{'.' + rest if rest else ''}", depth + 1)
+    return target
 
 
 def generic_workflow(model: dict[str, Any], scope_id: str, max_stages: int = 500) -> Workflow:

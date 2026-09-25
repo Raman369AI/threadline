@@ -4,11 +4,11 @@
 
 ## Current local candidate — 2026-09-24
 
-Chrome 153 on Linux passed 62 keyboard, pointer, reflow, zoom, and accessibility
-checks with zero axe violations across 24 audited states. The candidate checks
-include the default Data flow and Data models view, Steps, full-width Code,
-pointer and keyboard code resizing, sidebar collapse, No-distraction mode,
-related source controls, exact change evidence, 720- and 390-pixel widths, and 200% zoom. These are
+Chrome 153 on Linux passed 56 keyboard, reflow, zoom, and accessibility checks
+with zero axe violations across 23 audited states. The candidate checks include
+the method code review, keyboard name highlighting, opening a call beside the
+code, Escape order, sidebar collapse, exact change evidence, 720- and 390-pixel
+widths, and 200% zoom. These are
 local results for the current checkout. Native Safari, the cross-platform
 matrix, and human assistive-technology review have not been rerun for this
 candidate.

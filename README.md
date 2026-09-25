@@ -1,8 +1,8 @@
-# Threadline
+# Threadline — Python code review and data flow visualization
 
 **Follow data through Python methods, with source and model definitions beside it.**
 
-[Get started](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md) · [Documentation](https://github.com/Raman369AI/threadline/blob/main/docs/README.md) · [GitHub](https://github.com/Raman369AI/threadline) · [Report a bug](https://github.com/Raman369AI/threadline/issues)
+[PyPI: threadline-review](https://pypi.org/project/threadline-review/) · [Get started](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md) · [Documentation](https://github.com/Raman369AI/threadline/blob/main/docs/README.md) · [GitHub](https://github.com/Raman369AI/threadline) · [Report a bug](https://github.com/Raman369AI/threadline/issues)
 
 Threadline opens your Python repository in a local browser. Choose an endpoint,
 command, or method to see what data enters it, what it creates or changes, and
@@ -15,12 +15,32 @@ It reads source without importing or running the project being reviewed. That pr
 
 Requires **Python 3.12 or later**. In your Python environment:
 
+The PyPI package is **`threadline-review`**; the installed command is **`threadline`**.
+Use `--pre` for the current beta releases.
+
 ```bash
 python -m pip install --pre threadline-review
 threadline review /path/to/your/python-project
 ```
 
 Your browser opens the review automatically. If it does not, open the local address printed in the terminal. For virtual-environment setup, see the [installation guide](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md#install-from-pypi).
+
+### Generate a standalone HTML review
+
+Available in the development checkout (after `0.2.0b3`):
+
+```bash
+threadline review /path/to/your/python-project --output review.html
+```
+
+This opens a single HTML file and exits. It needs no server, internet connection,
+or Python installation to view. Search, method navigation, data flow, source,
+tests, and Git comparisons work from the embedded snapshot. Add `--base HEAD`
+to include changes or `--no-open` to generate the file without opening a browser.
+Regenerate the file after editing source; omit `--output` for a local server with
+**Refresh source**. The HTML contains the reviewed source, including a baseline
+when requested. Large exports take longer to prepare; use `--source-root` or
+`--exclude` to narrow them.
 
 ## Choose where to start
 
@@ -30,12 +50,12 @@ Your browser opens the review automatically. If it does not, open the local addr
 | **Commands & tasks** | Select a CLI command or background task. |
 | **Modules & methods** | Pick a module, filter its methods, then select one. |
 
-Search is available across all three pages. Selecting a method opens its Data
-flow beside its Data models; nothing is selected automatically. Switch to Steps
-for the line-by-line explanation or expand Code to read only the selected
-method. The code pane can also sit beside the analysis at an adjustable width.
-Related tests expand below the code. Selecting a caller compares both methods'
-code and flow side by side, with Back returning to your previous view.
+Search is available across all three pages. Selecting a method shows its code
+with a one-line summary of what comes in, which project functions it calls, what
+it changes, and what it returns. Select a name to highlight its uses. Called
+functions, related tests, and callers open beside the code, and referenced
+models show as source. The call map on the left lists the project functions it
+reaches; **Back** returns to where you were.
 
 Each data link points to source evidence. Unresolved sources and effects remain
 visible as gaps rather than invented values. The [usage guide](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md)

@@ -70,19 +70,33 @@ else:
     server=make_server(fixture_root,port=0,base='HEAD' if change_review else None)
     worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
     review_url=f'http://127.0.0.1:{server.server_address[1]}/'
-with socket.socket() as probe:
-    probe.bind(('127.0.0.1',0));debug=probe.getsockname()[1]
-with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
-    browser=subprocess.Popen([chrome,'--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check',f'--remote-debugging-port={debug}',f'--remote-allow-origins=http://127.0.0.1:{debug}',f'--user-data-dir={profile}','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
-    try:
+def stop(process):
+    """Stop Chrome, and force it if it ignores the terminate signal, so cleanup never raises."""
+    if process.poll() is not None: return
+    process.terminate()
+    try: process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill();process.wait(timeout=5)
+def start_browser(profile):
+    """Start headless Chrome and open the review. A CI runner can stall Chrome at startup, so try twice."""
+    for attempt in (1,2):
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1',0));debug=probe.getsockname()[1]
+        process=subprocess.Popen([chrome,'--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check',f'--remote-debugging-port={debug}',f'--remote-allow-origins=http://127.0.0.1:{debug}',f'--user-data-dir={profile}/attempt-{attempt}','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
         for _ in range(400):
             try:
                 request=urllib.request.Request(f'http://127.0.0.1:{debug}/json/new?{review_url}',method='PUT')
-                target=json.load(urllib.request.urlopen(request));break
+                return process,debug,json.load(urllib.request.urlopen(request))
             except Exception: time.sleep(.05)
-        else:
-            detail=browser.stderr.read().strip() if browser.poll() is not None else 'browser remained alive but DevTools did not answer within 20 seconds'
-            raise RuntimeError('Chrome DevTools did not start: '+detail[-2000:])
+        exited=process.poll() is not None
+        stop(process)
+        detail=process.stderr.read().strip() if exited else 'browser remained alive but DevTools did not answer within 20 seconds'
+        print(f'Chrome DevTools did not start on attempt {attempt}: {detail[-500:]}',file=sys.stderr)
+    raise RuntimeError('Chrome DevTools did not start after two attempts: '+detail[-2000:])
+with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
+    browser=None
+    try:
+        browser,debug,target=start_browser(profile)
         ws=websocket.create_connection(target['webSocketDebuggerUrl'],origin=f'http://127.0.0.1:{debug}')
         sequence=0;errors=[]
         def command(method,params=None):
@@ -436,7 +450,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         if not all(checks.values()): raise SystemExit(1)
         ws.close()
     finally:
-        browser.terminate();browser.wait(timeout=5)
+        if browser: stop(browser)
         if server:
             server.shutdown();server.server_close();worker.join()
         fixture.cleanup()

@@ -76,7 +76,11 @@ def main():
                         assert expected in response.read(), path
             finally:
                 process.terminate()
-                process.wait(timeout=10)
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=10)
         print('PASS: clean wheel install, CLI workflow, standalone HTML, loopback server, and bundled assets')
 
 

@@ -7,6 +7,7 @@ runtime values, database rows, branch execution, or effects of unknown calls.
 from __future__ import annotations
 
 import ast
+import builtins
 import re
 import time
 from collections import deque
@@ -27,7 +28,16 @@ MAX_TEMPLATE_USES = 200
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 _SCOPES = _FUNCTIONS + (ast.ClassDef,)
 _MUTATORS = {'append', 'extend', 'insert', 'add', 'update', 'setdefault', 'remove', 'discard', 'pop', 'popitem', 'clear', 'sort', 'reverse'}
+# Builtin container and string methods that only read. A callee calling one of these on a
+# parameter does not change the caller's argument; any other method call still might.
+_READ_ONLY_METHODS = {'count', 'index', 'get', 'keys', 'values', 'items', 'copy', 'find', 'rfind', 'startswith',
+                      'endswith', 'strip', 'lstrip', 'rstrip', 'lower', 'upper', 'split', 'rsplit', 'join', 'format',
+                      'replace', 'encode', 'decode', 'isdigit', 'isalpha', 'isalnum', 'issubset', 'issuperset',
+                      'isdisjoint', 'union', 'intersection', 'difference', 'symmetric_difference'}
 _CONTAINER_BUILTINS = {'list': 'list', 'sorted': 'list', 'dict': 'dict', 'set': 'set'}
+_BUILTIN_NAMES = frozenset(name for name in dir(builtins) if not name.startswith('_'))
+# Every module has these without an assignment in its source.
+_MODULE_ATTRIBUTES = ('__file__', '__name__', '__doc__', '__package__', '__spec__', '__loader__', '__path__')
 # A callee cannot change a caller's argument declared as one of these.
 _IMMUTABLE_TYPES = {'str', 'int', 'float', 'bool', 'bytes', 'complex', 'None', 'tuple', 'frozenset',
                     'Decimal', 'decimal.Decimal', 'Fraction', 'fractions.Fraction'}
@@ -66,6 +76,55 @@ def _immutable_annotation(annotation: str | None) -> bool:
             return item.value is None or isinstance(item.value, str) and item.value in _IMMUTABLE_TYPES
         return _text(item) in _IMMUTABLE_TYPES
     return immutable(node)
+
+
+def _target_names(target: ast.AST) -> set[str]:
+    """Names bound by an assignment or loop target, including tuple and starred parts."""
+    return {node.id for node in ast.walk(target) if isinstance(node, ast.Name)}
+
+
+def _block_statements(statements: list[ast.stmt]):
+    """Statements in a body, including those inside if/try/with/for/while blocks, but not nested scopes."""
+    for statement in statements:
+        yield statement
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for field in ('body', 'orelse', 'finalbody'):
+            yield from _block_statements(getattr(statement, field, []))
+        for handler in getattr(statement, 'handlers', []):
+            yield from _block_statements(handler.body)
+        for case in getattr(statement, 'cases', []):
+            yield from _block_statements(case.body)
+
+
+def _function_bindings(function: ast.AST) -> set[str]:
+    """Names a function binds locally, without entering nested scopes or comprehensions."""
+    arguments = function.args  # type: ignore[attr-defined]
+    names = {arg.arg for arg in arguments.posonlyargs + arguments.args + arguments.kwonlyargs
+             + [arg for arg in (arguments.vararg, arguments.kwarg) if arg]}
+    declared_global: set[str] = set()
+
+    def visit(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(child.name)
+            elif isinstance(child, ast.Global):
+                declared_global.update(child.names)
+            elif isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del)):
+                names.add(child.id)
+            elif isinstance(child, (ast.Import, ast.ImportFrom)):
+                names.update(alias.asname or alias.name.split('.')[0] for alias in child.names)
+            elif isinstance(child, ast.ExceptHandler) and child.name:
+                names.add(child.name)
+                visit(child)
+            elif isinstance(child, ast.NamedExpr):
+                names.add(child.target.id)
+                visit(child.value)
+            elif not isinstance(child, (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                visit(child)
+    if not isinstance(function, ast.Lambda):  # a lambda binds only its parameters
+        visit(function)
+    return names - declared_global
 
 
 def _short(value: str, limit: int = 180) -> str:
@@ -152,6 +211,8 @@ class _Builder:
         self._omitted = 0
         self._trees: dict[str, ast.AST] = {}
         self._imports: dict[str, str] = {}
+        self._module_globals: dict[str, list[ast.AST]] = {}
+        self._enclosing: dict[str, str] = {}
         self._shadowed_builtins: set[str] = set()
         self._class_index: dict[str, list[dict[str, Any]]] = {}
         self._owner_declarations: list[dict[str, Any]] | None = None
@@ -165,6 +226,8 @@ class _Builder:
         if self.method is None:
             raise ValueError('selected scope is absent from retained source')
         self._index_imports()
+        self._index_module_globals()
+        self._index_enclosing()
         self._index_builtin_shadows()
         self._index_classes()
         self._index_calls()
@@ -310,8 +373,7 @@ class _Builder:
         # imports are indexed only as names; timing and shadowing remain open.
         module_body = getattr(self.tree, 'body', [])
         method_body = [] if isinstance(self.method, ast.Lambda) else getattr(self.method, 'body', [])
-        body = list(module_body) + list(method_body)
-        for statement in body:
+        for statement in _block_statements(list(module_body) + list(method_body)):
             if isinstance(statement, ast.ImportFrom):
                 if statement.level:
                     parts = self.scope['module'].split('.')
@@ -328,6 +390,44 @@ class _Builder:
                 for alias in statement.names:
                     self._imports[alias.asname or alias.name.split('.')[0]] = (
                         alias.name if alias.asname else alias.name.split('.')[0])
+
+    def _index_module_globals(self) -> None:
+        # Names bound at module level, including inside top-level if/try/with/for
+        # blocks. A method reads them as module globals, not unknown names.
+        def visit(statements: list[ast.stmt]) -> None:
+            for statement in statements:
+                if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    self._module_globals.setdefault(statement.name, []).append(statement)
+                    continue
+                targets: list[ast.AST] = []
+                if isinstance(statement, ast.Assign):
+                    targets = statement.targets
+                elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)) and statement.value is not None:
+                    targets = [statement.target]
+                elif isinstance(statement, (ast.For, ast.AsyncFor)):
+                    targets = [statement.target]
+                for target in targets:
+                    for name in ast.walk(target):
+                        if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store):
+                            self._module_globals.setdefault(name.id, []).append(statement)
+                for field in ('body', 'orelse', 'finalbody'):
+                    visit(getattr(statement, field, []))
+                for handler in getattr(statement, 'handlers', []):
+                    visit(handler.body)
+        visit(getattr(self.tree, 'body', []))
+        for name in _MODULE_ATTRIBUTES:
+            self._module_globals.setdefault(name, [])
+
+    def _index_enclosing(self) -> None:
+        # Names bound by enclosing functions, innermost first. Class bodies are
+        # skipped: Python does not make them visible to nested functions.
+        parent = self.model['scopes'].get(self.scope.get('parent'))
+        while parent and parent['kind'] != 'module':
+            node = self._find_node(self.tree, parent) if parent['kind'] != 'class' else None
+            if node is not None:
+                for name in _function_bindings(node):
+                    self._enclosing.setdefault(name, parent['qualified'])
+            parent = self.model['scopes'].get(parent.get('parent'))
 
     def _index_classes(self) -> None:
         for scope in self.model['scopes'].values():
@@ -362,9 +462,23 @@ class _Builder:
             return self._external[name]
         imported = self._imports.get(name)
         candidates = self._class_index.get(imported or name, [])
-        kind = 'model_reference' if candidates else 'import_reference' if imported else 'external'
-        identifier = self._node(name, kind, node, expression=imported or name,
-                                certainty='reference' if imported or candidates else 'unknown')
+        # Python looks up local, then enclosing function, then global, then builtin names.
+        enclosing = self._enclosing.get(name)
+        if enclosing:
+            identifier = self._node(name, 'closure_variable', node, certainty='reference',
+                                    expression=f'{name} from enclosing {enclosing}')
+            self._external[name] = identifier
+            return identifier
+        bindings = [] if imported or candidates else self._module_globals.get(name)
+        builtin = not (imported or candidates or bindings is not None) and name in _BUILTIN_NAMES
+        kind = ('model_reference' if candidates else 'import_reference' if imported
+                else 'module_global' if bindings is not None else 'builtin' if builtin else 'external')
+        # A single module-level assignment shows its value; rebinding elsewhere is still possible.
+        value = getattr(bindings[0], 'value', None) if bindings and len(bindings) == 1 else None
+        expression = imported or (_short(_text(value), 120) if value is not None
+                                  else 'module attribute' if name in _MODULE_ATTRIBUTES else name)
+        identifier = self._node(name, kind, node, expression=expression,
+                                certainty='reference' if imported or candidates or bindings is not None or builtin else 'unknown')
         self._external[name] = identifier
         if kind == 'external':
             self._gap('unbound_read', f'{name} is not bound in this method; its source is not established', node)
@@ -514,12 +628,12 @@ class _Builder:
                     for index, generator in enumerate(node.generators):
                         iterable = first_iter if index == 0 else self._eval(generator.iter)
                         inputs.extend(iterable.sources)
-                        if isinstance(generator.target, ast.Name):
-                            item = self._node(generator.target.id, 'comprehension_item', generator.target,
+                        for target in (node for node in ast.walk(generator.target) if isinstance(node, ast.Name)):
+                            item = self._node(target.id, 'comprehension_item', target,
                                               expression=_text(generator.iter), certainty='possible',
                                               object_id=self._object())
-                            self._state.names[generator.target.id] = item
-                            self._event('iteration_item', generator.target, iterable.sources, [item],
+                            self._state.names[target.id] = item
+                            self._event('iteration_item', target, iterable.sources, [item],
                                         label=f'possible element of {_short(_text(generator.iter))}',
                                         certainty='possible')
                             inputs.append(item)
@@ -603,10 +717,36 @@ class _Builder:
         # Inspect source names without repeating call/container events.
         if node is None:
             return []
-        rows = []
-        for child in ast.walk(node):
+        rows: list[str] = []
+
+        # Comprehension targets and lambda parameters are local to their expression.
+        def visit(child: ast.AST, bound: frozenset[str]) -> None:
             if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
-                rows.extend(self._value_for_name(child.id, child).sources)
+                if child.id not in bound:
+                    rows.extend(self._value_for_name(child.id, child).sources)
+                return
+            if isinstance(child, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                inner = bound
+                for index, generator in enumerate(child.generators):
+                    # The first iterable is evaluated outside the comprehension.
+                    visit(generator.iter, bound if index == 0 else inner)
+                    inner = inner | _target_names(generator.target)
+                    for condition in generator.ifs:
+                        visit(condition, inner)
+                for part in ((child.key, child.value) if isinstance(child, ast.DictComp) else (child.elt,)):
+                    visit(part, inner)
+                return
+            if isinstance(child, ast.Lambda):
+                arguments = child.args
+                parameters = {arg.arg for arg in arguments.posonlyargs + arguments.args + arguments.kwonlyargs
+                              + [arg for arg in (arguments.vararg, arguments.kwarg) if arg]}
+                for default in arguments.defaults + [value for value in arguments.kw_defaults if value]:
+                    visit(default, bound)
+                visit(child.body, bound | parameters)
+                return
+            for sub in ast.iter_child_nodes(child):
+                visit(sub, bound)
+        visit(node, frozenset())
         return _unique(rows)
 
     def _call(self, node: ast.Call) -> _Value:
@@ -785,7 +925,8 @@ class _Builder:
                         break
             elif (isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
                   and isinstance(child.func.value, ast.Name)
-                  and child.func.value.id in parameter_names):
+                  and child.func.value.id in parameter_names
+                  and child.func.attr not in _READ_ONLY_METHODS):
                 mutation_param = child.func.value.id
             if mutation_param:
                 if len(mutation_sites) < 20:
@@ -817,18 +958,25 @@ class _Builder:
 
     def _mutate_receiver(self, node: ast.Call, receiver: _Value | None,
                          method_name: str, args: list[str]) -> None:
-        if receiver is None or receiver.object_id is None:
+        object_id = receiver.object_id if receiver else None
+        target = node.func.value if isinstance(node.func, ast.Attribute) else None
+        if object_id is None and isinstance(target, (ast.Attribute, ast.Subscript)):
+            # self.items.append(x): the list has no identity here, but its owner does,
+            # so the owner's state changes through that field.
+            key = self._field_key(target)
+            object_id = key[0] if key else None
+        if receiver is None or object_id is None:
             self._gap('possible_mutation', f'{method_name} may mutate its receiver; alias is not established', node)
             return
-        prior = self._state.objects.get(receiver.object_id)
-        display = _text(node.func.value) if isinstance(node.func, ast.Attribute) else 'receiver'
+        prior = self._state.objects.get(object_id)
+        display = _text(target) if target is not None else 'receiver'
         next_state = self._node(display, 'object_state', node, expression=_text(node),
-                                certainty='possible', object_id=receiver.object_id)
-        self._state.objects[receiver.object_id] = next_state
+                                certainty='possible', object_id=object_id)
+        self._state.objects[object_id] = next_state
         kind = 'removed_item' if method_name in ('remove', 'discard', 'pop', 'popitem', 'clear') else 'added_item' if method_name in ('append', 'extend', 'insert', 'add') else 'updated_object'
         self._event(kind, node, _unique(([prior] if prior else receiver.sources) + args), [next_state],
                     label=f'{method_name} on {display}', certainty='possible',
-                    details={'objectId': receiver.object_id, 'method': method_name,
+                    details={'objectId': object_id, 'method': method_name,
                              'effect': 'possible mutation; method dispatch is not proven'})
 
     def _template_context(self, node: ast.Call) -> None:
@@ -1143,8 +1291,17 @@ class _Builder:
                                       if row['kind'] == 'output' and row['name'] == 'return'])]
             for handler in node.handlers:
                 output_start = len(self.nodes)
-                handled = self._branch_block(handler.body, before,
+                start = before
+                if handler.name:
+                    start = before.fork()
+                    start.names[handler.name] = self._node(
+                        handler.name, 'exception', handler, certainty='possible', object_id=self._object(),
+                        expression=_text(handler.type) if handler.type else 'BaseException')
+                handled = self._branch_block(handler.body, start,
                                              self._guard(handler, _text(handler.type), 'except'))
+                if handler.name:
+                    # Python deletes the name at the end of the except clause.
+                    handled.names.pop(handler.name, None)
                 alternatives.append((handled, [row for row in self.nodes[output_start:]
                                                if row['kind'] == 'output' and row['name'] == 'return']))
             if node.finalbody:

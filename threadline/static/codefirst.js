@@ -219,16 +219,22 @@ function renderSummary(host, scope, data, calls) {
     return item;
   });
   group('Calls', [...projectChips, ...receivedChips], 'no project functions');
-  // A name is a definite change if any write to it is; otherwise it is only a possible callee effect.
+  // A name is a definite change if any write to it is; otherwise it is only a possible effect.
+  // self and cls keep their attribute (self.items); a chip for those highlights the changing lines.
   const changed = new Map();
   for (const node of flowNodes(data).filter(node => ['object_state', 'field'].includes(node.kind))) {
-    const name = String(node.name).split('.')[0];
-    if (!/^[A-Za-z_]\w*$/.test(name)) continue;
+    const parts = String(node.name).split('.');
+    const name = ['self', 'cls'].includes(parts[0]) && parts.length > 1 ? parts.slice(0, 2).join('.') : parts[0];
+    if (!/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)?$/.test(name)) continue;
     const possible = node.certainty === 'possible';
-    if (!changed.has(name) || !possible) changed.set(name, possible ? node : null);
+    const entry = changed.get(name) || {possible: node, lines: new Set()};
+    if (!possible) entry.possible = null;
+    if (usableFlowSpan(node.span)) entry.lines.add(node.span.start);
+    changed.set(name, entry);
   }
-  group('Changes', [...changed].map(([name, possible]) => {
-    const item = nameChip(name, possible ? `May change: ${possible.expression}` : 'Highlight where it is used and changed');
+  group('Changes', [...changed].map(([name, {possible, lines}]) => {
+    const title = possible ? `May change: ${possible.expression}` : 'Highlight where it is used and changed';
+    const item = name.includes('.') ? lineChip(name, title, 'change:' + name, lines) : nameChip(name, title);
     if (possible) item.classList.add('cf-possible');
     return item;
   }), 'nothing it receives');

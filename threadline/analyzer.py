@@ -61,6 +61,24 @@ def read_source_bytes(path, root, limit=MAX_FILE_BYTES):
 SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
 
+def returned_class(annotation):
+    """The class expression in a return annotation: Repo, "Repo", Repo | None, or Optional[Repo]."""
+    if not annotation:
+        return None
+    try:
+        node = ast.parse(annotation, mode='eval').body
+    except SyntaxError:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return returned_class(node.value)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        sides = [side for side in (node.left, node.right) if not (isinstance(side, ast.Constant) and side.value is None)]
+        return sides[0] if len(sides) == 1 and isinstance(sides[0], (ast.Name, ast.Attribute)) else None
+    if isinstance(node, ast.Subscript) and text(node.value) in ('Optional', 'typing.Optional'):
+        return node.slice if isinstance(node.slice, (ast.Name, ast.Attribute)) else None
+    return node if isinstance(node, (ast.Name, ast.Attribute)) else None
+
+
 def short(text, limit=110):
     text = ' '.join(text.split())
     return text if len(text) <= limit else text[:limit - 1] + '…'
@@ -536,6 +554,28 @@ class Analyzer:
             return []
         return self.class_reference(expression, scope)
 
+    def factory_classes(self, name, scope):
+        """Classes named by the return annotation of project function `name`, as in repo = make_repo()."""
+        try:
+            expression = ast.parse(name, mode='eval').body
+        except SyntaxError:
+            return []
+        if isinstance(expression, ast.Name):
+            targets, _ = self.lexical(scope, expression.id)
+        else:
+            path = self.imported_path(scope, expression)
+            targets = self.symbols.get(path, []) if path else []
+        classes = []
+        for target in targets:
+            function = self.scopes[target]
+            if function['kind'] in ('module', 'class'):
+                continue
+            returned = returned_class(function.get('output', {}).get('annotation'))
+            origin = self.scopes.get(function['parent'])
+            if returned is not None and origin:
+                classes.extend(self.class_reference(returned, origin))
+        return list(dict.fromkeys(classes))
+
     def member_targets(self, class_id, member, seen=None):
         """Find source candidates in a class and statically identifiable bases."""
         seen = set() if seen is None else seen
@@ -863,6 +903,8 @@ class Analyzer:
                     class_name, origin_id, evidence = candidate[:3]
                     origin = self.scopes[origin_id]
                     class_targets = [origin_id] if origin['kind'] == 'class' and origin['name'] == class_name else self.class_reference_text(class_name, origin)
+                    if not class_targets and evidence == 'constructor-shaped assignment':
+                        class_targets = self.factory_classes(class_name, origin)
                     members.extend(target for class_id in class_targets for target in self.member_targets(class_id, func.attr))
                     if not class_targets:
                         imported = self.imported_name(origin, class_name)

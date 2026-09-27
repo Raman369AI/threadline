@@ -2,7 +2,8 @@
 // The review: the selected method's code with a one-line summary. Names highlight
 // their uses; project calls, tests, and callers open beside the code; referenced
 // models show as source.
-const codeFirst = {request: 0, scope: null, highlight: null, beside: null, lineMarks: new Map()};
+// rendered: the snapshot and method whose view is complete, so selecting it again does not redraw it.
+const codeFirst = {request: 0, scope: null, highlight: null, beside: null, lineMarks: new Map(), rendered: null};
 
 // Calls resolved to this repository.
 function projectCalls(data) {
@@ -20,7 +21,7 @@ async function renderCodeFirst(id) {
   const request = ++codeFirst.request, captured = model, scope = captured.scopes[id];
   const code = $('#cfCode'), summary = $('#cfSummary'), context = $('#cfContext');
   if (codeFirst.scope !== id) { codeFirst.highlight = null; codeFirst.beside = null; }
-  codeFirst.scope = id;
+  codeFirst.scope = id; codeFirst.rendered = null;
   $('#methodWhere').textContent = `${scope.file}:${scope.span.start} · ${scope.async ? 'async ' : ''}${scope.kind}`;
   summary.replaceChildren(el('p', 'source-peek', 'Reading…'));
   code.replaceChildren(el('p', 'source-peek', 'Loading code…'));
@@ -29,7 +30,7 @@ async function renderCodeFirst(id) {
     if (!isCallable(scope)) {
       summary.replaceChildren(el('p', 'source-peek', scope.kind === 'module' ? 'Module body: code that runs when the module is imported or run.' : 'Class body.'));
       await renderScopeSource(code, scope, scope.span.start, request);
-      if (request === codeFirst.request) renderContext(context, null, id);
+      if (request === codeFirst.request) { renderContext(context, null, id); codeFirst.rendered = captured.snapshotId + '|' + id; }
       return;
     }
     const [source, data] = await Promise.all([boundedMethodLines(id, captured.snapshotId), getFlowOverview(id, captured)]);
@@ -40,6 +41,7 @@ async function renderCodeFirst(id) {
     renderContext(context, data, id);
     if (codeFirst.highlight) highlightName(codeFirst.highlight, false);
     if (codeFirst.beside) openBeside(codeFirst.beside, false);
+    codeFirst.rendered = captured.snapshotId + '|' + id;
   } catch (error) {
     if (request !== codeFirst.request || captured !== model) return;
     code.replaceChildren(el('p', 'error', 'Code unavailable: ' + error.message),
@@ -219,16 +221,22 @@ function renderSummary(host, scope, data, calls) {
     return item;
   });
   group('Calls', [...projectChips, ...receivedChips], 'no project functions');
-  // A name is a definite change if any write to it is; otherwise it is only a possible callee effect.
+  // A name is a definite change if any write to it is; otherwise it is only a possible effect.
+  // self and cls keep their attribute (self.items); a chip for those highlights the changing lines.
   const changed = new Map();
   for (const node of flowNodes(data).filter(node => ['object_state', 'field'].includes(node.kind))) {
-    const name = String(node.name).split('.')[0];
-    if (!/^[A-Za-z_]\w*$/.test(name)) continue;
+    const parts = String(node.name).split('.');
+    const name = ['self', 'cls'].includes(parts[0]) && parts.length > 1 ? parts.slice(0, 2).join('.') : parts[0];
+    if (!/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)?$/.test(name)) continue;
     const possible = node.certainty === 'possible';
-    if (!changed.has(name) || !possible) changed.set(name, possible ? node : null);
+    const entry = changed.get(name) || {possible: node, lines: new Set()};
+    if (!possible) entry.possible = null;
+    if (usableFlowSpan(node.span)) entry.lines.add(node.span.start);
+    changed.set(name, entry);
   }
-  group('Changes', [...changed].map(([name, possible]) => {
-    const item = nameChip(name, possible ? `May change: ${possible.expression}` : 'Highlight where it is used and changed');
+  group('Changes', [...changed].map(([name, {possible, lines}]) => {
+    const title = possible ? `May change: ${possible.expression}` : 'Highlight where it is used and changed';
+    const item = name.includes('.') ? lineChip(name, title, 'change:' + name, lines) : nameChip(name, title);
     if (possible) item.classList.add('cf-possible');
     return item;
   }), 'nothing it receives');

@@ -1,10 +1,11 @@
-"""Independent, manually authored call-resolution checks; fixtures are never run."""
+"""Independent, manually authored call-resolution and data-flow checks; fixtures are never run."""
 import argparse
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from threadline.dataflow import build_dataflow
 from threadline.service import SnapshotStore
 
 CORPUS = Path(__file__).parent / 'tests' / 'semantic_cases.json'
@@ -23,6 +24,9 @@ def evaluate():
             model = store.current
             for expected in case['checks']:
                 scope = next(scope for scope in model['scopes'].values() if scope['qualified'] == expected['scope'])
+                if expected.get('kind') in ('changes', 'name'):
+                    rows.append(dataflow_check(case['name'], expected, build_dataflow(model, scope['id'])))
+                    continue
                 operations = store.get_method(scope['id'], limit=100)['operations']['items']
                 calls = [call for node in operations for call in node['calls'] if call['name'] == expected['call']]
                 if len(calls) != 1:
@@ -47,6 +51,28 @@ def evaluate():
             'directTargetsResolved':sum(row.get('status') == 'supported' for row in direct),
             'directTargetsAnnotated':len(direct), 'results':rows,
             'scope':'Curated source expectations, not execution observations or a complete semantic oracle.'}
+
+
+def dataflow_check(case, expected, flow):
+    """`changes`: names a method may change; `name`: what a name read inside a method refers to."""
+    if expected['kind'] == 'changes':
+        changed = {node['name'] for node in flow['nodes'] if node['kind'] in ('object_state', 'field')}
+        missing = set(expected.get('mustChange', [])) - changed
+        unexpected = set(expected.get('mustNotChange', [])) & changed
+        return {'case': case, 'check': 'changes', 'scope': expected['scope'], 'changed': sorted(changed),
+                'passed': not missing and not unexpected, 'falseSupported': False}
+    kinds = {node['kind'] for node in flow['nodes'] if node['name'] == expected['name'] and node['kind'] != 'output'}
+    gaps = [gap for gap in flow['gaps'] if gap['kind'] == 'unbound_read' and gap.get('expression') == expected['name']]
+    if expected.get('mustBeUnbound'):
+        # The name is out of scope at this read, e.g. after its comprehension or except clause.
+        passed = bool(gaps)
+    elif 'allowedKinds' in expected:
+        # A name local to a comprehension may leave no outside node at all; it must never be unbound.
+        passed = kinds <= set(expected['allowedKinds']) and not gaps
+    else:
+        passed = kinds == {expected['expectedKind']} and (expected['expectedKind'] == 'external' or not gaps)
+    return {'case': case, 'check': 'name', 'scope': expected['scope'], 'name': expected['name'],
+            'kinds': sorted(kinds), 'passed': passed, 'falseSupported': False}
 
 
 class SemanticAccuracyTests(unittest.TestCase):

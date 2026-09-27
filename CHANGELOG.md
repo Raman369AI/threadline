@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Render a method once when it is opened; building its call map selected it again and redrew the view, briefly showing "Loading code…" and fetching it twice.
+- Resolve names bound at module level (`FEE = 2`, including inside top-level `if`/`try` blocks) as module globals with their value, instead of unknown names with an "unbound read" gap.
+- Stop reporting an argument as possibly changed when the callee only calls read-only methods on it (`count`, `index`, `get`, `keys`, `startswith`, …).
+- Record `self.items.append(item)` and similar calls as a change to `self.items`; the summary shows `self` and `cls` changes with their attribute.
+- Type a receiver from a factory's return annotation: after `repo = make_repo()` with `-> Repo` or `-> Optional[Repo]`, `repo.get()` probably calls `Repo.get`.
+- Bind `except ... as exc` inside its handler, and unbind it afterwards as Python does.
+- Keep comprehension and lambda variables inside their expression, so `assert all(row["id"] for row in rows)` no longer reads `row` as an unknown name; bind tuple targets such as `for key, value in rows`.
+- Label builtins used as values, such as `key=str`, as builtins instead of unknown names; a module-level definition with the same name still wins.
+- Resolve names a nested function or lambda reads from its enclosing function as closure variables, following Python's lookup order: an enclosing name wins over a module global, and class bodies are not enclosing scopes.
+- Index imports inside `if`/`try`/`with` blocks, such as `try: import mcp.types as mcp_types`, and treat `__file__`, `__name__`, and other implicit module attributes as module globals. On agent-kanban-pm, unknown-name gaps in method data flow fall from 763 to 0.
+- Extend the semantic corpus with `changes` and `name` data-flow checks, and add these nine cases, each with a contrasting check, as a regression gate.
 - Stop reporting a caller's argument as changed when the callee only calls methods on a parameter annotated as an immutable type such as `str`, `int | None`, or `tuple[int, ...]`.
 - Show a change that a called function only *might* make as a dashed chip with its source in the tooltip, instead of as a definite change. The reading guide now explains dashed items.
 - Resolve construction of an imported `@dataclass` or `@total_ordering` class as a direct call instead of *probably*.

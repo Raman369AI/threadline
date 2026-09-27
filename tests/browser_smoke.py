@@ -386,8 +386,10 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         js("document.querySelector('#cfContext .data-model-more').click()")
         wait_for("document.querySelector('#cfContext').textContent.includes('Model84')")
         checks['models_page_reaches_all_definitions']=js("document.querySelector('#cfContext').textContent.includes('Model84') && document.querySelectorAll('#cfContext .data-model-item').length>=85 && document.querySelector('#cfContext .data-model-more')===null")
-        js("(async()=>{const rows=await api('/api/symbols',{q:'submit_order',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='submit_order').id);})()")
+        # Opening a method also builds its call map, which selects the method again; the view must render once.
+        js("(async()=>{const original=renderCodeFirst;let renders=0;window.renderCodeFirst=id=>{renders++;return original(id)};try{const rows=await api('/api/symbols',{q:'submit_order',snapshot:model.snapshotId});await startReview(rows.symbols.items.find(s=>s.name==='submit_order').id);}finally{window.renderCodeFirst=original;window.__renders=renders;}})()")
         wait_for("document.querySelector('#cfCode .cf-call')!==null && document.querySelector('#cfContext .data-model-item')!==null")
+        checks['opening_method_renders_once']=js("window.__renders===1 && workflowState.profile?.root===state.scope")
         checks['summary_lists_in_calls_returns']=js("(()=>{const t=document.querySelector('#cfSummary').textContent;return ['request','repository','notifier','place_order','OrderResponse'].every(w=>t.includes(w))})()")
         checks['shows_only_method_code']=js("document.querySelector('#cfCode').textContent.includes('def submit_order') && !document.querySelector('#cfCode').textContent.includes('def place_order')")
         js("document.querySelector('#cfSummary .cf-chip[data-name=request]').click()")

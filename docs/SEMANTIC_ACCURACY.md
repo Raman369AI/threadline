@@ -13,6 +13,23 @@ Run:
 python test_semantic_accuracy.py --report artifacts/semantic-accuracy.json
 ```
 
+Most checks are call checks. Two data-flow check kinds cover what a method changes and
+what a name refers to:
+
+- `"kind": "changes"` lists names the method must change (`mustChange`) and must not
+  change (`mustNotChange`), such as `self.items` after `self.items.append(item)`, or an
+  argument passed to a callee that only reads it.
+- `"kind": "name"` gives the node kind a name read must have, such as `module_global` for
+  a module constant, `closure_variable` for a name a nested function reads from its
+  enclosing function, `exception` for an `except ... as` name, `builtin` for `str` passed
+  as a value, or `external` for a name bound nowhere. `allowedKinds` accepts a name that
+  may leave no outside node, like a comprehension variable, as long as it is never
+  reported unbound. `mustBeUnbound` requires the opposite: the read is out of scope, as
+  after a comprehension or an `except` clause.
+
+Pair each fix with a contrasting check, for example a callee that really mutates next to
+one that only reads, so a case cannot pass by over-correcting.
+
 The same corpus runs under `python -m unittest discover -v`. CI retains the standalone
 JSON report. Every annotated call checks target bounds, allowed certainty labels, and
 exact source evidence. An incorrect **supported** relationship fails the gate separately

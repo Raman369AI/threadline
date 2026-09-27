@@ -382,6 +382,108 @@
         {"scope": "unpack", "call": "helper", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false},
         {"scope": "walrus", "call": "helper", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
       ]
+    },
+    {
+      "name": "read-only callee does not change its argument",
+      "files": {
+        "app.py": "def summarize(items):\n    return len(items) + items.count(None) + items.index(1)\ndef fill(items):\n    items.append(1)\ndef read_only_caller(items):\n    return summarize(items)\ndef mutating_caller(items):\n    fill(items)\n    return items\n"
+      },
+      "checks": [
+        {"scope": "read_only_caller", "kind": "changes", "mustNotChange": ["items"]},
+        {"scope": "mutating_caller", "kind": "changes", "mustChange": ["items"]}
+      ]
+    },
+    {
+      "name": "method appends to an attribute list",
+      "files": {
+        "app.py": "class Cart:\n    def __init__(self):\n        self.items = []\n    def add(self, item):\n        self.items.append(item)\n    def size(self):\n        return len(self.items)\n"
+      },
+      "checks": [
+        {"scope": "Cart.add", "kind": "changes", "mustChange": ["self.items"]},
+        {"scope": "Cart.size", "kind": "changes", "mustNotChange": ["self.items", "self"]}
+      ]
+    },
+    {
+      "name": "factory return annotation types the receiver",
+      "files": {
+        "app.py": "from typing import Optional\nclass Repo:\n    def get(self, key):\n        return key\ndef build():\n    return Repo()\ndef make_repo() -> Repo:\n    return build()\ndef find_repo() -> Optional[Repo]:\n    return None\ndef untyped_factory():\n    return build()\ndef use_factory(key):\n    repo = make_repo()\n    return repo.get(key)\ndef use_optional(key):\n    repo = find_repo()\n    return repo.get(key)\ndef use_untyped(key):\n    repo = untyped_factory()\n    return repo.get(key)\n"
+      },
+      "checks": [
+        {"scope": "use_factory", "call": "repo.get", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:Repo.get"], "requiredTargets": ["app.py:Repo.get"], "directTarget": false},
+        {"scope": "use_optional", "call": "repo.get", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:Repo.get"], "requiredTargets": ["app.py:Repo.get"], "directTarget": false},
+        {"scope": "use_untyped", "call": "repo.get", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
+      ]
+    },
+    {
+      "name": "module constants are module globals",
+      "files": {
+        "app.py": "FEE = 2\nLIMITS = {'max': 10}\ntry:\n    RATE = 3\nexcept ImportError:\n    RATE = 1\ndef with_fee(value):\n    return value * FEE * RATE + LIMITS['max']\ndef unbound():\n    return MISSING\n"
+      },
+      "checks": [
+        {"scope": "with_fee", "kind": "name", "name": "FEE", "expectedKind": "module_global"},
+        {"scope": "with_fee", "kind": "name", "name": "LIMITS", "expectedKind": "module_global"},
+        {"scope": "with_fee", "kind": "name", "name": "RATE", "expectedKind": "module_global"},
+        {"scope": "unbound", "kind": "name", "name": "MISSING", "expectedKind": "external"}
+      ]
+    },
+    {
+      "name": "except handler binds its name",
+      "files": {
+        "app.py": "def load(path):\n    try:\n        return open(path).read()\n    except OSError as exc:\n        return str(exc)\ndef stale(path):\n    try:\n        open(path)\n    except OSError as exc:\n        pass\n    return exc\n"
+      },
+      "checks": [
+        {"scope": "load", "kind": "name", "name": "exc", "expectedKind": "exception"},
+        {"scope": "stale", "kind": "name", "name": "exc", "mustBeUnbound": true}
+      ]
+    },
+    {
+      "name": "comprehension variables stay inside the comprehension",
+      "files": {
+        "app.py": "def check(rows, args):\n    assert all(row['id'] for row in rows)\n    assert any(a == '--x' for a in args)\n    return [key for key, value in rows]\ndef leak(rows):\n    [item for item in rows]\n    return item\n"
+      },
+      "checks": [
+        {"scope": "check", "kind": "name", "name": "row", "allowedKinds": ["comprehension_item"]},
+        {"scope": "check", "kind": "name", "name": "a", "allowedKinds": ["comprehension_item"]},
+        {"scope": "check", "kind": "name", "name": "key", "allowedKinds": ["comprehension_item"]},
+        {"scope": "leak", "kind": "name", "name": "item", "mustBeUnbound": true}
+      ]
+    },
+    {
+      "name": "builtins used as values",
+      "files": {
+        "app.py": "def order(args):\n    counter = len\n    return sorted(args, key=str), counter\n",
+        "shadow.py": "def len(value):\n    return 0\ndef pick():\n    return len\n"
+      },
+      "checks": [
+        {"scope": "order", "kind": "name", "name": "str", "expectedKind": "builtin"},
+        {"scope": "order", "kind": "name", "name": "len", "expectedKind": "builtin"},
+        {"scope": "pick", "kind": "name", "name": "len", "expectedKind": "module_global"}
+      ]
+    },
+    {
+      "name": "nested functions read their enclosing function's names",
+      "files": {
+        "app.py": "LIMIT = 5\ndef outer(items):\n    calls = {\"n\": 0}\n    total = 0\n    def inner(x):\n        calls[\"n\"] += 1\n        return x + total\n    handler = lambda: items\n    return inner, handler\nclass Box:\n    size = 3\n    def grow(self):\n        return size\ndef factory(prefix):\n    class Named:\n        def label(self):\n            return prefix\n    return Named\ndef shadow():\n    LIMIT = 1\n    def read():\n        return LIMIT\n    return read\n"
+      },
+      "checks": [
+            {"scope": "outer.inner", "kind": "name", "name": "calls", "expectedKind": "closure_variable"},
+            {"scope": "outer.inner", "kind": "name", "name": "total", "expectedKind": "closure_variable"},
+            {"scope": "outer.<lambda@8:14>", "kind": "name", "name": "items", "expectedKind": "closure_variable"},
+            {"scope": "factory.Named.label", "kind": "name", "name": "prefix", "expectedKind": "closure_variable"},
+            {"scope": "shadow.read", "kind": "name", "name": "LIMIT", "expectedKind": "closure_variable"},
+            {"scope": "Box.grow", "kind": "name", "name": "size", "mustBeUnbound": true}
+          ]
+    },
+    {
+      "name": "imports inside blocks and module attributes",
+      "files": {
+        "app.py": "try:\n    import json as fast_json\nexcept ImportError:\n    fast_json = None\nROOT = __file__\ndef dump(value):\n    return fast_json.dumps(value)\ndef where():\n    return __file__\ndef terminal(flag):\n    if flag:\n        import pty\n        return pty.openpty()\n    return None\n"
+      },
+      "checks": [
+            {"scope": "dump", "kind": "name", "name": "fast_json", "expectedKind": "import_reference"},
+            {"scope": "where", "kind": "name", "name": "__file__", "expectedKind": "module_global"},
+            {"scope": "terminal", "kind": "name", "name": "pty", "expectedKind": "import_reference"}
+          ]
     }
   ]
 }

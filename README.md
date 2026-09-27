@@ -46,7 +46,7 @@ large codebases.
 
 | Part | What it shows |
 | --- | --- |
-| **Summary** | *In*, *Calls*, *Changes*, *Returns*, and *Raises*. *Calls* includes methods called on objects passed in, such as `db.commit` or `repository.save`. Select an item to highlight it in the code or open the call. Dashed items are uncertain. |
+| **Summary** | *In*, *Calls*, *Changes*, *Effects*, *Returns*, and *Raises*. *Calls* includes methods called on objects passed in, such as `db.commit` or `repository.save`. *Effects* shows database, network, file, process, and logging work, split into reads and writes, including what arrives through called project code ("DB write via `update_user`"). Select an item to highlight it in the code or open the call. Dashed items are uncertain. |
 | **Code** | Only the selected method. Select a name to highlight every use; underlined calls open beside the code. |
 | **Beside the code** | The opened call, test, or caller with its calling line marked, then **Tests**, **Callers**, and **Models** as source. |
 | **Call map** | Project functions the method reaches, each with the line that calls it and tags such as *if*, *later*, or *probably*. |

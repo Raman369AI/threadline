@@ -5,8 +5,10 @@ import ast
 import hashlib
 import io
 import stat
+import sys
 import time
 import os
+import re
 import tokenize
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -17,6 +19,8 @@ MAX_TOTAL_BYTES = 64 * 1024 * 1024
 MAX_FILES = 10000
 MAX_AST_NODES = 2_000_000
 MAX_ANALYSIS_SECONDS = 60
+# The newest Python in the CI matrix; an older one cannot parse its new syntax.
+NEWEST_TESTED_PYTHON = (3, 14)
 # Class decorators that return the decorated class itself, so constructing it is still a direct call.
 TRANSPARENT_CLASS_DECORATORS = {'dataclasses.dataclass', 'functools.total_ordering'}
 
@@ -59,6 +63,31 @@ def read_source_bytes(path, root, limit=MAX_FILE_BYTES):
 
 
 SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+
+
+def library_names(status, reason, func):
+    """Qualified library targets an external call may reach, such as requests.post or
+    sqlalchemy.orm.Session.commit, read from the resolution reason this module writes."""
+    if status != 'external':
+        return []
+    if 'receiver type candidate outside index: ' in reason:
+        return [name.strip() for name in reason.split('outside index: ', 1)[1].split(',')]
+    if reason.startswith('builtin candidate') and isinstance(func, ast.Name):
+        return ['builtins.' + func.id]
+    match = re.search(r'\bimport ([\w.]+)', reason)
+    return [match.group(1)] if match else []
+
+
+def parse_error_message(exc):
+    """Name the parsing Python, since a file can use syntax newer than the Python running Threadline."""
+    if not isinstance(exc, SyntaxError):
+        return str(exc)
+    version = '.'.join(map(str, sys.version_info[:2]))
+    message = f'{exc} (parsed with Python {version}'
+    if sys.version_info[:2] < NEWEST_TESTED_PYTHON:
+        newest = '.'.join(map(str, NEWEST_TESTED_PYTHON))
+        message += f'; if this file uses newer syntax, run Threadline with Python {newest}'
+    return message + ')'
 
 
 def returned_class(annotation):
@@ -112,6 +141,9 @@ class Analyzer:
         self.class_nodes = {}
         self.mro_cache = {}
         self.local_bindings = defaultdict(set)
+        # (scope id, name) -> assigned values; None marks a binding that is not a plain alias.
+        self.aliases = defaultdict(list)
+        self.resolving_aliases = set()
         self.declarations = defaultdict(lambda: {'global': set(), 'nonlocal': set()})
         self.rebindings = {}
         self.duplicate_definitions = defaultdict(list)
@@ -204,7 +236,7 @@ class Analyzer:
                             'hash': hashlib.sha256(raw).hexdigest() if raw is not None else None,
                             'status': 'error', 'error': type(exc).__name__ + ': ' + str(exc),
                         }
-                        self.errors.append({'file': file, 'message': str(exc)}); continue
+                        self.errors.append({'file': file, 'message': parse_error_message(exc)}); continue
                     self.total_nodes += sum(1 for _ in ast.walk(tree))
                     if self.total_nodes > MAX_AST_NODES:
                         raise AnalysisLimitError('AST node budget exceeded; narrow --source-root')
@@ -455,6 +487,7 @@ class Analyzer:
             args = node.args
             for arg in args.posonlyargs + args.args + args.kwonlyargs + [a for a in (args.vararg, args.kwarg) if a]:
                 self.local_bindings[scope['id']].add(arg.arg)
+                self.aliases[(scope['id'], arg.arg)].append(None)
                 if isinstance(arg.annotation, (ast.Name, ast.Attribute)):
                     self.add_instance(scope, arg.arg, text(arg.annotation), 'parameter annotation')
                     self.parameter_nodes[(scope['id'], arg.arg)] = arg
@@ -475,6 +508,8 @@ class Analyzer:
         def remember(target, value=None, annotation=None, source_node=None):
             names = list(self.bound_names(target))
             for name in names:
+                plain = isinstance(target, ast.Name) and isinstance(value, (ast.Name, ast.Attribute))
+                self.aliases[(scope['id'], name)].append(value if plain else None)
                 if name not in self.declarations[scope['id']]['global'] | self.declarations[scope['id']]['nonlocal']:
                     self.local_bindings[scope['id']].add(name)
                     self.rebindings.setdefault(scope['id'], set()).add(name)
@@ -511,7 +546,8 @@ class Analyzer:
             elif isinstance(child, (ast.With, ast.AsyncWith)):
                 for item in child.items:
                     if item.optional_vars:
-                        remember(item.optional_vars)
+                        # Clients, sessions, and files usually return themselves from __enter__.
+                        remember(item.optional_vars, item.context_expr)
             elif isinstance(child, ast.ExceptHandler) and child.name:
                 remember(ast.Name(id=child.name, ctx=ast.Store()))
             elif isinstance(child, ast.NamedExpr):
@@ -554,8 +590,9 @@ class Analyzer:
             return []
         return self.class_reference(expression, scope)
 
-    def factory_classes(self, name, scope):
-        """Classes named by the return annotation of project function `name`, as in repo = make_repo()."""
+    def factory_classes(self, name, scope, seen=None):
+        """Classes project function `name` returns, as in repo = make_repo(): its return annotation,
+        or, without one, the classes every non-None return constructs (return Repo(), return build())."""
         try:
             expression = ast.parse(name, mode='eval').body
         except SyntaxError:
@@ -565,16 +602,39 @@ class Analyzer:
         else:
             path = self.imported_path(scope, expression)
             targets = self.symbols.get(path, []) if path else []
+        seen = set() if seen is None else seen
         classes = []
         for target in targets:
             function = self.scopes[target]
-            if function['kind'] in ('module', 'class'):
+            if function['kind'] in ('module', 'class') or target in seen or len(seen) > 4:
                 continue
-            returned = returned_class(function.get('output', {}).get('annotation'))
+            seen.add(target)
+            output = function.get('output', {})
+            returned = returned_class(output.get('annotation'))
             origin = self.scopes.get(function['parent'])
             if returned is not None and origin:
                 classes.extend(self.class_reference(returned, origin))
+            elif output.get('annotation') is None and not function['async'] and not function['generator']:
+                classes.extend(self.constructed_classes(output.get('returns', []), function, seen))
         return list(dict.fromkeys(classes))
+
+    def constructed_classes(self, returns, function, seen):
+        """Classes built by return expressions; empty unless every non-None return builds one."""
+        classes = []
+        for returned in returns:
+            if returned == 'None':
+                continue
+            try:
+                node = ast.parse(returned, mode='eval').body
+            except SyntaxError:
+                return []
+            if not isinstance(node, ast.Call) or not isinstance(node.func, (ast.Name, ast.Attribute)):
+                return []
+            found = self.class_reference(node.func, function) or self.factory_classes(text(node.func), function, seen)
+            if not found:
+                return []
+            classes.extend(found)
+        return classes
 
     def member_targets(self, class_id, member, seen=None):
         """Find source candidates in a class and statically identifiable bases."""
@@ -841,6 +901,26 @@ class Analyzer:
             node = node.value if isinstance(node, ast.Attribute) else node.func
         return node.id if isinstance(node, ast.Name) else None
 
+    def alias_result(self, name, scope):
+        """Resolve `alias` in alias = clean; alias(): one assignment from a name or attribute."""
+        cursor = scope
+        while cursor and name not in self.local_bindings[cursor['id']]:
+            cursor = self.scopes.get(cursor['parent'])
+        key = (cursor['id'], name) if cursor else None
+        values = self.aliases.get(key, [])
+        if len(values) != 1 or values[0] is None or key in self.resolving_aliases:
+            return None
+        self.resolving_aliases.add(key)
+        try:
+            targets, status, reason = self.resolve(values[0], cursor)
+        finally:
+            self.resolving_aliases.discard(key)
+        if status == 'external':
+            return [], 'external', f'assigned from {text(values[0])}; ' + reason
+        if targets:
+            return targets, 'possible', f'assigned from {text(values[0])}; the name can be rebound'
+        return None
+
     def resolve(self, func, scope):
         name = text(func)
         root = self.root_name(func)
@@ -859,6 +939,9 @@ class Analyzer:
             if reason.startswith('import '):
                 return [], 'external', reason + '; implementation not indexed'
             if reason.startswith('local binding'):
+                aliased = self.alias_result(func.id, scope)
+                if aliased:
+                    return aliased
                 return [], 'unknown', reason + '; inspect its assignment or parameter'
             builtins = {'str', 'int', 'bool', 'float', 'list', 'dict', 'set', 'tuple', 'len', 'print', 'range', 'enumerate', 'zip', 'sum', 'min', 'max', 'sorted', 'isinstance', 'getattr', 'setattr', 'hasattr', 'open', 'super', 'Exception', 'ValueError', 'TypeError', 'RuntimeError', 'next', 'iter', 'any', 'all', 'repr'}
             if name in builtins:
@@ -907,8 +990,11 @@ class Analyzer:
                         class_targets = self.factory_classes(class_name, origin)
                     members.extend(target for class_id in class_targets for target in self.member_targets(class_id, func.attr))
                     if not class_targets:
-                        imported = self.imported_name(origin, class_name)
-                        if imported != class_name:
+                        try:
+                            imported = self.imported_path(origin, ast.parse(class_name, mode='eval').body)
+                        except SyntaxError:
+                            imported = None
+                        if imported:
                             external.append(imported + '.' + func.attr)
                 if members:
                     return self.callable_member_result(members, 'possible', 'inferred receiver ' + text(receiver) + '; runtime dispatch can vary')
@@ -1146,6 +1232,7 @@ class Analyzer:
                 call = {'id': self.ident(node, file), 'scope': scope['id'], 'name': text(node.func), 'expression': short(text(node), 180),
                         'span': self.span(node, file), 'targets': targets, 'status': status, 'reason': reason,
                         'reasonCode': self.reason_code(status, reason),
+                        'library': library_names(status, reason, node.func),
                         'arguments': [text(arg) for arg in node.args] + [(kw.arg + '=' if kw.arg else '**') + text(kw.value) for kw in node.keywords],
                         'bindings': bindings, 'receiverBindings': receiver_bindings,
                         'candidateEvidence': self.receiver_evidence(node.func, scope, targets),
@@ -1385,6 +1472,8 @@ class Analyzer:
 def analyze(root, *, source_roots=None, exclude=None):
     from .workflows import build_workflows
     model = Analyzer(root, source_roots=source_roots, exclude=exclude).run()
+    from .effects import attach_effects
+    attach_effects(model)
     model["workflows"] = build_workflows(model)
     from .workflows import suggested_entrypoints
     model["entrypoints"] = suggested_entrypoints(model)

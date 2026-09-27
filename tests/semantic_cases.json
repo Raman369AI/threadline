@@ -404,14 +404,16 @@
       ]
     },
     {
-      "name": "factory return annotation types the receiver",
+      "name": "factory return annotation or constructor return types the receiver",
       "files": {
-        "app.py": "from typing import Optional\nclass Repo:\n    def get(self, key):\n        return key\ndef build():\n    return Repo()\ndef make_repo() -> Repo:\n    return build()\ndef find_repo() -> Optional[Repo]:\n    return None\ndef untyped_factory():\n    return build()\ndef use_factory(key):\n    repo = make_repo()\n    return repo.get(key)\ndef use_optional(key):\n    repo = find_repo()\n    return repo.get(key)\ndef use_untyped(key):\n    repo = untyped_factory()\n    return repo.get(key)\n"
+        "app.py": "from typing import Optional\nclass Repo:\n    def get(self, key):\n        return key\ndef build():\n    return Repo()\ndef make_repo() -> Repo:\n    return build()\ndef find_repo() -> Optional[Repo]:\n    return None\ndef untyped_factory():\n    return build()\ndef lookup(name, registry):\n    return registry[name]\nasync def async_factory():\n    return Repo()\ndef use_factory(key):\n    repo = make_repo()\n    return repo.get(key)\ndef use_optional(key):\n    repo = find_repo()\n    return repo.get(key)\ndef use_untyped(key):\n    repo = untyped_factory()\n    return repo.get(key)\ndef use_lookup(key, registry):\n    repo = lookup(key, registry)\n    return repo.get(key)\ndef use_async(key):\n    repo = async_factory()\n    return repo.get(key)\n"
       },
       "checks": [
         {"scope": "use_factory", "call": "repo.get", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:Repo.get"], "requiredTargets": ["app.py:Repo.get"], "directTarget": false},
         {"scope": "use_optional", "call": "repo.get", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:Repo.get"], "requiredTargets": ["app.py:Repo.get"], "directTarget": false},
-        {"scope": "use_untyped", "call": "repo.get", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
+        {"scope": "use_untyped", "call": "repo.get", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:Repo.get"], "requiredTargets": ["app.py:Repo.get"], "directTarget": false},
+        {"scope": "use_lookup", "call": "repo.get", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false},
+        {"scope": "use_async", "call": "repo.get", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
       ]
     },
     {
@@ -483,6 +485,48 @@
             {"scope": "dump", "kind": "name", "name": "fast_json", "expectedKind": "import_reference"},
             {"scope": "where", "kind": "name", "name": "__file__", "expectedKind": "module_global"},
             {"scope": "terminal", "kind": "name", "name": "pty", "expectedKind": "import_reference"}
+          ]
+    },
+    {
+      "name": "a name assigned once from a function is an alias",
+      "files": {
+        "app.py": "def clean(value):\n    return value\ndef other(value):\n    return value\ndef run(value):\n    alias = clean\n    return alias(value)\ndef chained(value):\n    first = clean\n    second = first\n    return second(value)\ndef rebound(value, flag):\n    alias = clean\n    if flag:\n        alias = other\n    return alias(value)\n"
+      },
+      "checks": [
+            {"scope": "run", "call": "alias", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:clean"], "requiredTargets": ["app.py:clean"], "directTarget": false},
+            {"scope": "chained", "call": "second", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:clean"], "requiredTargets": ["app.py:clean"], "directTarget": false},
+            {"scope": "rebound", "call": "alias", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
+          ]
+    },
+    {
+      "name": "effect catalog: library calls",
+      "files": {
+        "app.py": "import json\nimport logging\nimport os\nimport subprocess\nfrom pathlib import Path\n\nimport httpx\nimport requests\nfrom sqlalchemy import delete, select, update\nfrom sqlalchemy.ext.asyncio import AsyncSession\nfrom sqlalchemy.orm import Session\n\nlogger = logging.getLogger(__name__)\n\n\nasync def save_user(db: AsyncSession, user):\n    db.add(user)\n    await db.commit()\n    await db.refresh(user)\n    return user\n\n\nasync def load_user(db: AsyncSession, user_id):\n    result = await db.execute(select(User).where(User.id == user_id))\n    return result.scalar_one_or_none()\n\n\ndef purge(session: Session, user_id):\n    session.execute(delete(User).where(User.id == user_id))\n    session.commit()\n\n\ndef untyped_save(session, user):\n    session.add(user)\n    session.commit()\n\n\ndef notify(url, payload):\n    logger.info(\"notifying %s\", url)\n    requests.post(url, json=payload)\n    return requests.get(url).json()\n\n\ndef fetch(url):\n    with httpx.Client() as client:\n        return client.get(url).text\n\n\ndef export(path, data):\n    with open(path, \"w\") as handle:\n        json.dump(data, handle)\n    Path(path).with_suffix(\".bak\").write_text(\"x\")\n    os.remove(path)\n\n\ndef read_config(path: Path):\n    with open(path) as handle:\n        return handle.read() + path.read_text()\n\n\ndef run_tool():\n    return subprocess.run([\"ls\"], check=True)\n"
+      },
+      "checks": [
+            {"scope": "save_user", "kind": "effects", "mustHave": [{"effect": "db write", "certainty": "definite", "direct": true}, {"effect": "db read", "certainty": "definite"}], "mustNotHave": ["network write", "network read", "file write"]},
+            {"scope": "load_user", "kind": "effects", "mustHave": [{"effect": "db read", "certainty": "definite"}], "mustNotHave": ["db write"]},
+            {"scope": "purge", "kind": "effects", "mustHave": [{"effect": "db write", "certainty": "definite"}], "mustNotHave": ["db read"]},
+            {"scope": "untyped_save", "kind": "effects", "mustHave": [{"effect": "db write", "certainty": "possible"}], "mustNotHave": ["db read"]},
+            {"scope": "notify", "kind": "effects", "mustHave": [{"effect": "network write", "certainty": "definite"}, {"effect": "network read", "certainty": "definite"}, {"effect": "logging", "certainty": "definite"}], "mustNotHave": ["db write", "file write"]},
+            {"scope": "fetch", "kind": "effects", "mustHave": [{"effect": "network read"}], "mustNotHave": ["network write"]},
+            {"scope": "export", "kind": "effects", "mustHave": [{"effect": "file write", "certainty": "definite"}], "mustNotHave": ["file read", "network write"]},
+            {"scope": "read_config", "kind": "effects", "mustHave": [{"effect": "file read", "certainty": "definite"}], "mustNotHave": ["file write"]},
+            {"scope": "run_tool", "kind": "effects", "mustHave": [{"effect": "process", "certainty": "definite"}], "mustNotHave": ["file write"]},
+            {"scope": "fetch", "call": "client.get", "allowedStatuses": ["external"], "allowedTargets": [], "directTarget": false},
+            {"scope": "notify", "call": "logger.info", "allowedStatuses": ["external"], "allowedTargets": [], "directTarget": false}
+          ]
+    },
+    {
+      "name": "effect catalog: propagation through project calls",
+      "files": {
+        "crud.py": "from sqlalchemy.orm import Session\n\ndef update_user(session: Session, user):\n    session.merge(user)\n    session.commit()\n\ndef pure(value):\n    return value * 2\n\ndef ping(depth):\n    return pong(depth)\n\ndef pong(depth):\n    return ping(depth)\n",
+        "api.py": "from fastapi import HTTPException\nimport crud\n\ndef check_access(user):\n    if not user:\n        raise HTTPException(status_code=403)\n\ndef update(session, user):\n    check_access(user)\n    crud.update_user(session, user)\n    return crud.pure(1)\n\ndef compute(value):\n    return crud.pure(value) + crud.ping(3)\n"
+      },
+      "checks": [
+            {"scope": "update", "kind": "effects", "mustHave": [{"effect": "db write", "via": "update_user", "direct": false}, {"effect": "raises", "detail": "HTTPException", "via": "check_access"}], "mustNotHave": ["network write"]},
+            {"scope": "update_user", "kind": "effects", "mustHave": [{"effect": "db write", "certainty": "definite", "direct": true}]},
+            {"scope": "compute", "kind": "effects", "mustNotHave": ["db write", "db read", "network write", "network read", "file write", "file read", "process", "logging", "raises"]}
           ]
     }
   ]

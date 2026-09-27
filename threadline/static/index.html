@@ -37,7 +37,7 @@
     <dt><span class="stage-tag">new object</span></dt><dd>Creates an object; its initializer runs.</dd>
   </dl>
   <h3>Reading a method</h3>
-  <p>The summary lists what comes in, the functions it calls, what it changes, what it returns, and what it raises. Calls also include methods on objects passed in, such as <code>db.commit</code> or <code>repository.save</code>; they are dashed when the target cannot be told from source. A dashed item is uncertain: a call that probably goes there, or a change a called function might make. Select a name to highlight every use; assignments show in bold. Select an underlined call, a test, or a caller to read it beside the code, and <strong>Open →</strong> to move into it. <strong>← Back</strong> returns.</p>
+  <p>The summary lists what comes in, the functions it calls, what it changes, its effects outside the program (database, network, files, processes, logging, directly or through the project code it calls), what it returns, and what it raises. Calls also include methods on objects passed in, such as <code>db.commit</code> or <code>repository.save</code>; they are dashed when the target cannot be told from source. A dashed item is uncertain: a call that probably goes there, or a change a called function might make. Select a name to highlight every use; assignments show in bold. Select an underlined call, a test, or a caller to read it beside the code, and <strong>Open →</strong> to move into it. <strong>← Back</strong> returns.</p>
   <dl class="legend shortcuts">
     <dt><kbd>/</kbd></dt><dd>Search</dd>
     <dt><kbd>Esc</kbd></dt><dd>Clear the highlight, then close the side code</dd>

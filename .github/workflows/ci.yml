@@ -30,10 +30,16 @@ jobs:
         if: runner.os == 'Linux' && matrix.python == '3.12'
       - run: python -m mypy --follow-imports=skip --check-untyped-defs threadline/schema.py threadline/workflows.py threadline/agent_cli.py
         if: runner.os == 'Linux' && matrix.python == '3.12'
+      - name: Cross-check call targets with pyright
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+        run: python tests/pyright_crosscheck.py --project . --report artifacts/pyright-crosscheck.json
       - uses: actions/upload-artifact@v6
         with:
           name: semantic-accuracy-${{ matrix.os }}-${{ matrix.python }}
-          path: artifacts/semantic-accuracy.json
+          path: |
+            artifacts/semantic-accuracy.json
+            artifacts/pyright-crosscheck.json
+          if-no-files-found: warn
       - run: node --check threadline/static/app.js
       - run: node --check threadline/static/workflow.js
       - run: node --check threadline/static/method.js

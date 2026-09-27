@@ -44,10 +44,11 @@ large codebases.
 
 ### Generate a review from a GitHub URL
 
-The [GitHub Pages prototype](docs/GITHUB_PAGES.md) accepts a public repository URL,
+The [GitHub Pages prototype](https://raman369ai.github.io/threadline/) accepts a public repository URL,
 analyzes its Python source in your browser, and offers an interactive preview and
 HTML download. It uses the same analyzer through Pyodide, without a Python server.
-See the guide to run it locally or deploy it with the included Pages workflow.
+See the [setup guide](https://github.com/Raman369AI/threadline/blob/main/docs/GITHUB_PAGES.md)
+to run it locally or deploy it with the included Pages workflow.
 This version supports a single source snapshot, without Git comparisons.
 
 ## Read a method

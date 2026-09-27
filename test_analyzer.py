@@ -34,6 +34,16 @@ class AnalyzerTests(unittest.TestCase):
             self.assertEqual(result['files']['source.py']['source'],original.decode())
             self.assertEqual(self.scope(result,'value')['output']['returns'],['1'])
 
+    def test_syntax_error_names_the_parsing_python(self):
+        import sys
+        _, result = self.inspect({'modern.py': 'try:\n    pass\nexcept ValueError, TypeError:\n    pass\n'})
+        if sys.version_info >= (3, 14):
+            self.assertEqual(result['errors'], [])
+            return
+        message = result['errors'][0]['message']
+        self.assertIn(f'parsed with Python {sys.version_info[0]}.{sys.version_info[1]}', message)
+        self.assertIn('run Threadline with Python 3.14', message)
+
     def test_file_and_ast_budgets_fail_explicitly(self):
         from unittest.mock import patch
         from threadline.analyzer import AnalysisLimitError, read_source_bytes

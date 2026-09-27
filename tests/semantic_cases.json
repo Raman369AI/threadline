@@ -404,14 +404,16 @@
       ]
     },
     {
-      "name": "factory return annotation types the receiver",
+      "name": "factory return annotation or constructor return types the receiver",
       "files": {
-        "app.py": "from typing import Optional\nclass Repo:\n    def get(self, key):\n        return key\ndef build():\n    return Repo()\ndef make_repo() -> Repo:\n    return build()\ndef find_repo() -> Optional[Repo]:\n    return None\ndef untyped_factory():\n    return build()\ndef use_factory(key):\n    repo = make_repo()\n    return repo.get(key)\ndef use_optional(key):\n    repo = find_repo()\n    return repo.get(key)\ndef use_untyped(key):\n    repo = untyped_factory()\n    return repo.get(key)\n"
+        "app.py": "from typing import Optional\nclass Repo:\n    def get(self, key):\n        return key\ndef build():\n    return Repo()\ndef make_repo() -> Repo:\n    return build()\ndef find_repo() -> Optional[Repo]:\n    return None\ndef untyped_factory():\n    return build()\ndef lookup(name, registry):\n    return registry[name]\nasync def async_factory():\n    return Repo()\ndef use_factory(key):\n    repo = make_repo()\n    return repo.get(key)\ndef use_optional(key):\n    repo = find_repo()\n    return repo.get(key)\ndef use_untyped(key):\n    repo = untyped_factory()\n    return repo.get(key)\ndef use_lookup(key, registry):\n    repo = lookup(key, registry)\n    return repo.get(key)\ndef use_async(key):\n    repo = async_factory()\n    return repo.get(key)\n"
       },
       "checks": [
         {"scope": "use_factory", "call": "repo.get", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:Repo.get"], "requiredTargets": ["app.py:Repo.get"], "directTarget": false},
         {"scope": "use_optional", "call": "repo.get", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:Repo.get"], "requiredTargets": ["app.py:Repo.get"], "directTarget": false},
-        {"scope": "use_untyped", "call": "repo.get", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
+        {"scope": "use_untyped", "call": "repo.get", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:Repo.get"], "requiredTargets": ["app.py:Repo.get"], "directTarget": false},
+        {"scope": "use_lookup", "call": "repo.get", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false},
+        {"scope": "use_async", "call": "repo.get", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
       ]
     },
     {
@@ -483,6 +485,17 @@
             {"scope": "dump", "kind": "name", "name": "fast_json", "expectedKind": "import_reference"},
             {"scope": "where", "kind": "name", "name": "__file__", "expectedKind": "module_global"},
             {"scope": "terminal", "kind": "name", "name": "pty", "expectedKind": "import_reference"}
+          ]
+    },
+    {
+      "name": "a name assigned once from a function is an alias",
+      "files": {
+        "app.py": "def clean(value):\n    return value\ndef other(value):\n    return value\ndef run(value):\n    alias = clean\n    return alias(value)\ndef chained(value):\n    first = clean\n    second = first\n    return second(value)\ndef rebound(value, flag):\n    alias = clean\n    if flag:\n        alias = other\n    return alias(value)\n"
+      },
+      "checks": [
+            {"scope": "run", "call": "alias", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:clean"], "requiredTargets": ["app.py:clean"], "directTarget": false},
+            {"scope": "chained", "call": "second", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:clean"], "requiredTargets": ["app.py:clean"], "directTarget": false},
+            {"scope": "rebound", "call": "alias", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
           ]
     }
   ]

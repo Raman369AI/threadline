@@ -27,3 +27,17 @@ On POSIX, source reads pin directory descriptors, reject symlinks at every compo
 and accept only regular files. Parsing and hashing use a single bounded byte read.
 See [resource budgets](docs/PERFORMANCE.md) for limits and their scope. The Windows
 fallback does not provide the same directory-descriptor guarantees and is experimental.
+
+## Static GitHub Pages generator
+
+The `pages/` frontend fetches public repository source directly from GitHub and
+runs Threadline in a browser worker. It does not run a remote Python service.
+Downloads are pinned to one commit and checked against Git blob hashes, with
+file-count and byte limits. Target files are never imported or executed, and
+their directory is not on Python's import path. Symbolic links and submodules
+are not followed. The worker can be terminated with Cancel and has a five-minute
+page deadline.
+
+Generated reviews are previewed in a sandboxed iframe and can be downloaded as
+self-contained HTML containing the reviewed source. Repository content must stay
+inert in both forms. See [the Pages guide](docs/GITHUB_PAGES.md) for scope and limits.

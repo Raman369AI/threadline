@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add a GitHub Pages generator: paste a public repository URL, analyze its Python
+  source in a browser worker, preview the review, and download standalone HTML.
+  Includes optional branch and source-folder selection, pinned source verification,
+  cancellation, bounded downloads, and a Pages deployment workflow.
+- Allow saved HTML reviews to navigate inside a sandboxed browser preview when
+  the browser restricts changes to its URL.
+
 ## 0.2.0b5 — 2026-09-26
 
 - Infer a factory's result without a return annotation when every return constructs a class (`return Repo()`, `return build()`), and resolve a name assigned once from a function (`alias = clean`) as a probable alias.

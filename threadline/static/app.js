@@ -9,6 +9,14 @@ function scopeName(id) { return model.scopes[id]?.qualified || id; }
 const certaintyLabels = {supported:'Calls', possible:'Probably calls', external:'Library', unknown:"Can't tell"};
 function certaintyLabel(status) { return certaintyLabels[status] || status; }
 function announce(message) { $('#announcement').textContent = message; }
+function replaceReviewURL(url) {
+  try { history.replaceState(null, '', url); }
+  catch (error) {
+    // A downloaded review can also run in a sandboxed blob preview. Browsers
+    // restrict URL changes there; navigation still works using in-memory state.
+    if (error.name !== 'SecurityError' || !window.threadlineOffline) throw error;
+  }
+}
 function clearError(key) {
   const host = $('#reviewError');
   if (key && host.dataset.operation !== key) return;
@@ -114,7 +122,7 @@ async function modulePicker(host, initialFile=null) {
   function selectModule(file) {
     selectedFile=file;filter.value='';clearTimeout(timer);
     const url=new URL(location.href);if(file)url.searchParams.set('module',file);else url.searchParams.delete('module');
-    history.replaceState(null,'',url);loadModules(0,true);
+    replaceReviewURL(url);loadModules(0,true);
   }
   filter.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>loadModules(),150);});
   await loadModules();
@@ -154,7 +162,7 @@ async function showStartPage(page=null) {
     const available={endpoints:result.counts.http>0,commands:result.counts.commands+result.counts.tasks>0,methods:true};
     $('#endpointsTab').hidden=!available.endpoints;$('#commandsTab').hidden=!available.commands;
     catalogPage=Object.hasOwn(catalogTitles,requested)&&available[requested]?requested:result.counts.http?'endpoints':result.counts.commands+result.counts.tasks?'commands':'methods';
-    const url=new URL(location.href);url.hash='';url.searchParams.set('page',catalogPage);if(page || catalogPage!=='methods')url.searchParams.delete('module');history.replaceState(null,'',url);
+    const url=new URL(location.href);url.hash='';url.searchParams.set('page',catalogPage);if(page || catalogPage!=='methods')url.searchParams.delete('module');replaceReviewURL(url);
     setWorkflowMode('starts');
     $('#startProject').textContent=model.project+' · '+model.coverage.files+' Python files';
     host.replaceChildren();host.classList.toggle('single-page',catalogPage!=='commands');
@@ -217,7 +225,7 @@ async function chooseScope(id, opts={}) {
   if (codeFirst.rendered !== captured.snapshotId + '|' + id) await renderCodeFirst(id);
   if(request!==selectionRequest || captured!==model)return false;
   if (!opts.keepScroll) $('.review').scrollTop = 0;
-  history.replaceState(null, '', '#' + encodeURIComponent(id));
+  replaceReviewURL('#' + encodeURIComponent(id));
   if (typeof syncWorkflowMethod === 'function') syncWorkflowMethod(id);
   return true;
 }
@@ -437,7 +445,7 @@ async function load(refresh=false) {
     model={...summary,scopes:{},files:{},generatedWorkflows:{}};
     ++selectionRequest;
     for(const scope of summary.entrypoints.items)model.scopes[scope.id]=scope;
-    if(refresh && requestedSnapshot) history.replaceState(null,'',location.pathname+location.hash);
+    if(refresh && requestedSnapshot) replaceReviewURL(location.pathname+location.hash);
     $('#projectName').textContent=model.project;
     analysisStatus();coverage();renderChanges();
     const returnSnapshot=new URLSearchParams(location.search).get('returnSnapshot'), notice=$('#baselineNotice');

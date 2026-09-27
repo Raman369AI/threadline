@@ -42,6 +42,14 @@ when requested. Large exports take longer to prepare and are capped at 256 MiB; 
 `--source-root` or `--exclude` to narrow them, or use the local server for very
 large codebases.
 
+### Generate a review from a GitHub URL
+
+The [GitHub Pages prototype](docs/GITHUB_PAGES.md) accepts a public repository URL,
+analyzes its Python source in your browser, and offers an interactive preview and
+HTML download. It uses the same analyzer through Pyodide, without a Python server.
+See the guide to run it locally or deploy it with the included Pages workflow.
+This version supports a single source snapshot, without Git comparisons.
+
 ## Read a method
 
 | Part | What it shows |

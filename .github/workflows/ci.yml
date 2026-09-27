@@ -47,6 +47,13 @@ jobs:
       - run: node --check threadline/static/offline.js
       - run: node --check threadline/static/codefirst.js
       - run: node --check threadline/static/theme.js
+      - run: node --check pages/app.mjs && node --check pages/worker.js
+      - run: node --test tests/pages.test.mjs
+      - name: Build and test browser-only review generator
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+        run: |
+          python scripts/build_pages.py
+          python tests/pages_browser.py
       - run: python tests/browser_smoke.py
         if: runner.os == 'Linux'
       - run: python tests/browser_smoke.py --changes

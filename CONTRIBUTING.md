@@ -24,7 +24,11 @@ Start the bundled example:
 
 Keep changes generic. A fix for one repository should be expressed as a Python-language, packaging-layout, or framework pattern and covered by a small self-contained fixture.
 
-Keep Threadline focused on standalone browser-based source review. Hosted services, chat integrations, and target-code execution require an explicit product scope change. Treat repository text as untrusted evidence.
+Keep Threadline focused on standalone browser-based source review, including the
+static GitHub Pages generator in `pages/`. The generator analyzes public repository
+source in the visitor's browser. Server-side analysis services, chat integrations,
+and target-code execution require an explicit product scope change. Treat
+repository text as untrusted evidence.
 
 Threadline must never import, install, or execute the target repository. Connections shown as supported need exact source evidence. Ambiguous dispatch must remain possible or unknown.
 
@@ -51,6 +55,9 @@ python3 -m mypy --follow-imports=skip --check-untyped-defs threadline/schema.py 
 python3 tests/browser_smoke.py
 python3 tests/browser_smoke.py --changes
 python3 tests/browser_accessibility.py
+node --test tests/pages.test.mjs
+python3 scripts/build_pages.py
+python3 tests/pages_browser.py
 python3 -m pip wheel . --no-deps --wheel-dir dist
 python3 tests/release_smoke.py dist/*.whl
 ```
@@ -84,6 +91,8 @@ By contributing, you agree that your contribution is licensed under the reposito
 - `threadline/server.py` serves the loopback browser and allowlisted API routes.
 - `threadline/static/` contains the browser interface.
 - `threadline/changes.py` reviews Git changes without checking out target revisions.
+- `pages/` fetches public GitHub source and runs the existing analyzer and HTML
+  exporter in a Pyodide worker; `scripts/build_pages.py` creates its static site.
 - `threadline/cli.py` and `threadline/agent_cli.py` expose browser startup and
   versioned, snapshot-pinned structured queries.
 

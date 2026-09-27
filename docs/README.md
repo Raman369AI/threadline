@@ -36,6 +36,7 @@ Continue with the [usage guide](USING_THREADLINE.md) for Git change review, sour
 | Guide | What it covers |
 | --- | --- |
 | [Using Threadline](USING_THREADLINE.md) | Installation, local review, Git baselines, and CLI commands. |
+| [GitHub Pages generator](GITHUB_PAGES.md) | Browser-only public repository reviews, HTML downloads, local preview, and Pages deployment. |
 | [Capabilities and limits](CAPABILITIES.md) | Supported Python structures, evidence, and unresolved behavior. |
 | [Accessibility](ACCESSIBILITY.md) | Keyboard navigation, browser checks, and remaining manual checks. |
 | [Performance and resource budgets](PERFORMANCE.md) | Analysis limits, measured repository sizes, and provisional budgets. |

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Turn a public Python repository into an interactive code review. Runs in your browser, with a standalone HTML download.">
+  <title>Threadline · Review a GitHub repository</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="Threadline home"><span class="mark" aria-hidden="true">↳</span> threadline</a>
+    <a href="https://github.com/Raman369AI/threadline">Source on GitHub <span aria-hidden="true">↗</span></a>
+  </header>
+  <main>
+    <section class="intro" aria-labelledby="title">
+      <p class="eyebrow">PYTHON CODE REVIEW <span>Browser preview</span></p>
+      <h1 id="title">Follow the code.<br><span>Understand the flow.</span></h1>
+      <p class="lede">Turn a public GitHub repository into an interactive review. Explore methods, follow calls, and keep the original source beside you.</p>
+    </section>
+    <section class="generator" aria-labelledby="form-title">
+      <div class="form-heading"><h2 id="form-title">Start with a repository</h2><span class="badge">No installation</span></div>
+      <form id="review-form">
+        <label for="repository">Public GitHub repository</label>
+        <div class="input-row">
+          <input id="repository" name="repository" type="text" inputmode="url" placeholder="https://github.com/owner/repository" required spellcheck="false" autocomplete="off" aria-describedby="repository-help">
+          <button id="generate" type="submit">Generate review <span aria-hidden="true">→</span></button>
+        </div>
+        <p class="hint" id="repository-help">Paste a repository URL. Python files are read as source, never executed.</p>
+        <details id="options">
+          <summary>Branch and source folder</summary>
+          <div class="options-grid">
+            <div><label for="ref">Branch, tag, or commit <span>Optional</span></label><input id="ref" placeholder="Default branch" spellcheck="false" autocomplete="off"></div>
+            <div><label for="folder">Source folder <span>Optional</span></label><input id="folder" placeholder="Entire repository, or e.g. src" spellcheck="false" autocomplete="off" aria-describedby="folder-help"></div>
+          </div>
+          <p class="hint" id="folder-help">Choose a folder for larger repositories. Only code in that folder will be available to the review.</p>
+        </details>
+      </form>
+      <div class="status-row"><p id="status" role="status" aria-live="polite">Ready when you are.</p><button id="cancel" class="secondary" type="button" hidden>Cancel</button></div>
+      <progress id="progress" aria-label="Review progress" hidden></progress>
+      <p id="error" role="alert" hidden></p>
+    </section>
+    <section id="result" class="result" aria-labelledby="result-title" hidden>
+      <div class="result-heading">
+        <div><p class="eyebrow">YOUR REVIEW</p><h2 id="result-title" tabindex="-1">Review ready</h2><p id="result-info"></p></div>
+        <a id="download" class="button" download>Download HTML <span aria-hidden="true">↓</span></a>
+      </div>
+      <p id="coverage-note" class="hint"></p>
+      <iframe id="preview" title="Interactive Threadline code review" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+      <p class="hint">The download is self-contained and works offline. This preview stays in your browser; it does not create a public review link.</p>
+    </section>
+    <section class="features" aria-label="How it works">
+      <article><span class="step">01 / EXPLORE</span><h2>Find your starting point</h2><p>Browse endpoints, commands, and methods. Follow the functions they call.</p></article>
+      <article><span class="step">02 / UNDERSTAND</span><h2>Keep the evidence in view</h2><p>Read inputs, effects, returns, tests, and callers alongside the original code.</p></article>
+      <article><span class="step">03 / KEEP</span><h2>One file. The whole review.</h2><p>Download an interactive HTML snapshot to reopen or share.</p></article>
+    </section>
+    <footer><p>Analysis runs on your device. Source is fetched directly from GitHub.</p><p>Public repositories · Up to 1,500 selected files / 16 MiB · No Git comparisons</p><p>First use downloads a Python runtime. Large projects may work better with the <a href="https://github.com/Raman369AI/threadline#install-and-open-a-repository">local CLI</a>. <a href="THIRD_PARTY.txt">Open-source notices</a>.</p></footer>
+    <noscript><p class="noscript">JavaScript is required to generate a review in your browser.</p></noscript>
+  </main>
+</body>
+</html>

@@ -194,6 +194,16 @@ def _template_summary(model: dict[str, Any], scope_id: str,
             'truncated': bool(truncated or omitted), 'omitted': omitted}
 
 
+def _search_rank(row, query):
+    """Exact method names, then name prefixes, then other matches; project code before tests and lambdas."""
+    needle = query.casefold().strip()
+    name = row['name'].casefold()
+    last = name.split('.')[-1]
+    closeness = 0 if needle in (name, last, row['label'].casefold()) else 1 if last.startswith(needle) else 2
+    return (closeness, testlinks.is_test_file(row['file']), '<lambda' in name, last.startswith('__'),
+            row['label'].casefold(), row['file'])
+
+
 class SnapshotStore:
     """Keep bounded snapshots for one root and return detached query results.
 
@@ -317,7 +327,7 @@ class SnapshotStore:
 
     def starts(self, *, snapshot_id=None, query='', category=None, method=None, cursor=0, limit=6):
         model = self.model(snapshot_id)
-        categories = ('http', 'commands', 'tasks', 'methods')
+        categories = ('http', 'commands', 'tasks', 'testCommands', 'methods')
         if category is not None and category not in categories:
             raise ThreadlineError('Unknown workflow category')
         terms = query.casefold().strip().split()
@@ -332,7 +342,7 @@ class SnapshotStore:
         if terms:
             # A function with multiple route decorators remains one search result.
             matches = list({row['id']: row for row in reversed(rows)}.values())
-            matches.sort(key=lambda row: (row['name'].casefold() != query.casefold().strip(), row['name'].split('.')[-1].startswith('__'), row['label'].casefold(), row['file']))
+            matches.sort(key=lambda row: _search_rank(row, query))
             return {**metadata, 'results': add_evidence_ids(_page(matches, cursor, limit))}
         return {**metadata,
                 'groups': {kind: add_evidence_ids(_page([row for row in rows if row['category'] == kind], cursor, limit)) for kind in categories}}

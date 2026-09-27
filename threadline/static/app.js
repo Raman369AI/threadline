@@ -40,13 +40,15 @@ async function ensureScope(id, captured=model) {
   captured.scopes[id] = {...page.scope, flow:page.flow.items, nextCursor:page.flow.nextCursor};
   return captured.scopes[id];
 }
-const startLabels={http:'HTTP routes',commands:'CLI commands',tasks:'Tasks & callbacks',methods:'Functions & methods'};
-const emptyStartLabels={http:'No HTTP routes in this snapshot.',commands:'No CLI commands in this snapshot.',tasks:'No tasks or callbacks in this snapshot.',methods:'No functions or methods in this snapshot.'};
+const startLabels={http:'HTTP routes',commands:'CLI commands',tasks:'Tasks & callbacks',testCommands:'Test modules',methods:'Functions & methods'};
+const emptyStartLabels={http:'No HTTP routes in this snapshot.',commands:'No CLI commands in this snapshot.',tasks:'No tasks or callbacks in this snapshot.',testCommands:'No runnable test modules in this snapshot.',methods:'No functions or methods in this snapshot.'};
 const plural=(count,one,many)=>count+' '+(count===1?one:many);
 let startRequest=0;
-function startButton(row) {
+// Inside a module's list the file is already in the heading, so the card gives the line instead.
+function startButton(row, inModule=false) {
   const item=button('', 'start-item',()=>startReview(row.id));item.dataset.scope=row.id;
-  item.append(el('strong','',row.label),el('span','start-method',row.label===row.name?row.file:row.name+' · '+row.file));
+  const place=inModule?'line '+row.line:row.label===row.name||row.name==='<module>'?row.file:row.name+' · '+row.file;
+  item.append(el('strong','',row.label),el('span','start-method',place));
   return item;
 }
 let catalogPage='endpoints';
@@ -94,10 +96,10 @@ async function modulePicker(host, initialFile=null) {
       const page=file?result.methods:result.modules;
       list.replaceChildren();list.classList.toggle('module-grid',!file);
       for(const row of page.items) {
-        if(file)list.append(startButton(row));
+        if(file)list.append(startButton(row,true));
         else {
           const item=button('','start-item module-item',()=>selectModule(row.file));item.dataset.file=row.file;
-          item.append(el('strong','',row.name),el('span','start-method',row.file),el('span','module-count',plural(row.total,'function or method','functions & methods')));
+          item.append(el('strong','',row.name),el('span','start-method',row.file),el('span','module-count',plural(row.total,'function','functions')));
           list.append(item);
         }
       }
@@ -166,6 +168,13 @@ async function showStartPage(page=null) {
       if(category==='methods')await modulePicker(content,new URLSearchParams(location.search).get('module'));
       else await loadStartGroup(category,content);
       if(captured!==model || request!==startRequest)return;
+    }
+    if(catalogPage==='commands' && result.counts.testCommands) {
+      // Test files with a main guard are runnable, but rarely where a review starts.
+      const tests=el('details','start-group test-commands'), content=el('div');
+      tests.append(el('summary','','Test modules you can run · '+result.counts.testCommands),content);
+      tests.addEventListener('toggle',()=>{if(tests.open && !content.childElementCount)loadStartGroup('testCommands',content);});
+      host.append(tests);
     }
     workflowState.initialized=true;
   } catch(error) {if(captured===model && request===startRequest)host.replaceChildren(el('p','error',error.message),button('Retry','quiet-button',()=>showStartPage(page)));}
@@ -254,11 +263,16 @@ function analysisStatus() {
   badge.setAttribute('aria-label',badge.textContent+'. Open source coverage.');
 }
 function coverage() {
-  const c=model.coverage, host=$('#coveragePanel');host.replaceChildren(el('h2','','Source coverage'),el('p','',model.root));
+  const c=model.coverage, host=$('#coveragePanel');host.replaceChildren(el('p','',model.root));
   const grid=el('div','coverage-grid');
-  for(const [value,label] of [[`${format(c.files)}/${format(c.discovered)}`,'Python files parsed'],[format(c.definitions),'functions, methods & lambdas'],[`${format(c.representedStatements)}/${format(c.statements)}`,'statements represented'],[`${format(c.representedCalls)}/${format(c.calls)}`,'explicit call sites represented']]) {const stat=el('div','coverage-stat');stat.append(el('strong','',value),el('span','',label));grid.append(stat);}host.append(grid);
-  host.append(el('p','',Object.entries(c.statuses).map(([k,v])=>`${format(v)} ${k}`).join(' · ')));
-  for(const limit of model.limits)host.append(el('p','',limit));
+  for(const [value,label] of [[`${format(c.files)}/${format(c.discovered)}`,'Python files parsed'],[format(c.definitions),'functions, methods & lambdas'],[`${format(c.representedStatements)}/${format(c.statements)}`,'statements read'],[`${format(c.representedCalls)}/${format(c.calls)}`,'calls read']]) {const stat=el('div','coverage-stat');stat.append(el('strong','',value),el('span','',label));grid.append(stat);}host.append(grid);
+  const st=c.statuses||{}, total=Object.values(st).reduce((sum,value)=>sum+value,0);
+  if(total)host.append(el('p','',`Of ${format(total)} calls, ${format(st.supported||0)} go to one project function, ${format(st.possible||0)} probably do, ${format(st.external||0)} go to libraries, and ${format(st.unknown||0)} can't be told from source. Those are usually methods on objects that are passed in or built at runtime.`));
+  if(model.limits.length) {
+    const limits=el('details');limits.append(el('summary','','Limits of reading source without running it'));
+    for(const limit of model.limits)limits.append(el('p','',limit));
+    host.append(limits);
+  }
   for(const [label,category,count] of [['Excluded paths','excluded',model.diagnostics?.excluded?.total||0],['Analysis issues','errors',model.diagnostics?.analysisErrors?.total??model.diagnostics?.parseErrors?.total??0],['Unmodeled call syntax','unmodeledCalls',c.unmodeledCalls||0]]) {
     const section=el('details');section.append(el('summary','',label+' · '+count));
     const content=el('div');section.append(content);host.append(section);
@@ -446,11 +460,9 @@ async function load(refresh=false) {
   finally{b.disabled=false;b.textContent='↻ Refresh source';}
 }
 let searchTimer; $('#search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>navigation(),150);});
-function toggleCoverage() {const h=$('#coveragePanel');h.hidden=!h.hidden;$('#coverageButton').setAttribute('aria-expanded',String(!h.hidden));if(!h.hidden)h.focus();}
-$('#coverageButton').addEventListener('click',toggleCoverage);
-$('#analysisStatus').addEventListener('click',toggleCoverage);
+$('#analysisStatus').addEventListener('click',()=>toggleHelp(true,'coverage'));
 $('#refreshButton').addEventListener('click',()=>load(true));
-document.addEventListener('keydown',event=>{if(event.key==='/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){event.preventDefault();$('#search').focus();}if(event.key==='Escape'){if(!$('#coveragePanel').hidden)$('#coverageButton').focus();$('#coveragePanel').hidden=true;$('#coverageButton').setAttribute('aria-expanded','false');}});
+document.addEventListener('keydown',event=>{if(event.key==='/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){event.preventDefault();$('#search').focus();}});
 window.addEventListener('hashchange',async()=>{
   if(!model) return;
   try {

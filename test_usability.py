@@ -35,13 +35,20 @@ class ReviewStartTests(unittest.TestCase):
     def test_unittest_case_named_tests_links_to_code(self):
         self.assertEqual(self.store.method_overview(self.scope('run'), limit=5)['counts']['tests'], 1)
 
-    def test_reexported_script_and_package_main_are_commands_before_test_modules(self):
-        rows = self.store.starts(category='commands', limit=20)['results']['items']
+    def test_reexported_script_and_package_main_are_commands_and_test_modules_are_separate(self):
+        result = self.store.starts(category='commands', limit=20)
+        rows = result['results']['items']
         labels = [row['label'] for row in rows]
-        self.assertEqual(labels[:2], ['pkg', 'python -m pkg'])
+        self.assertEqual(labels, ['pkg', 'python -m pkg'])
         self.assertEqual(rows[0]['file'], 'pkg/commands.py')
-        self.assertEqual(labels[-1], 'python -m test_commands')
-        self.assertEqual(labels.count('python -m pkg'), 1)
+        self.assertEqual(result['counts']['testCommands'], 1)
+        tests = self.store.starts(category='testCommands', limit=20)['results']['items']
+        self.assertEqual([row['label'] for row in tests], ['python -m test_commands'])
+
+    def test_search_lists_exact_method_name_before_longer_and_test_names(self):
+        names = [row['name'] for row in self.store.starts(query='run', limit=20)['results']['items']]
+        self.assertEqual(names[0], 'run')
+        self.assertLess(names.index('run'), names.index('CommandTests.test_run'))
 
     def test_project_modules_list_before_test_modules(self):
         files = [row['file'] for row in self.store.modules(limit=20)['modules']['items']]
@@ -53,7 +60,7 @@ class ReviewStartTests(unittest.TestCase):
         html = output.read_text()
         snapshot = html.split('<script id="threadline-snapshot" type="application/json">', 1)[1].split('</script>', 1)[0]
         offline = (Path(__file__).parent / 'threadline' / 'static' / 'offline.js').read_text()
-        queries = [('/api/starts', {'category': category}) for category in ('http', 'commands', 'tasks', 'methods')]
+        queries = [('/api/starts', {'category': category}) for category in ('http', 'commands', 'tasks', 'testCommands', 'methods')]
         queries += [('/api/starts', {'q': 'run'}), ('/api/modules', {}), ('/api/modules', {'file': 'pkg/commands.py'})]
         script = ('const snapshot=' + json.dumps(snapshot) + ';globalThis.window={};'
                   'globalThis.document={getElementById:()=>({textContent:snapshot})};\n' + offline +

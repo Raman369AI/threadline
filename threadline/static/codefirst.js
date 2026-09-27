@@ -2,7 +2,7 @@
 // The review: the selected method's code with a one-line summary. Names highlight
 // their uses; project calls, tests, and callers open beside the code; referenced
 // models show as source.
-const codeFirst = {request: 0, scope: null, highlight: null, beside: null};
+const codeFirst = {request: 0, scope: null, highlight: null, beside: null, lineMarks: new Map()};
 
 // Calls resolved to this repository.
 function projectCalls(data) {
@@ -136,6 +136,13 @@ function highlightName(name, toggle = true) {
   clearCodeMarks();
   $('#cfSummary').querySelectorAll('.cf-chip[aria-pressed]').forEach(chip => chip.setAttribute('aria-pressed', String(chip.dataset.name === name)));
   if (!name) { announce('Highlight cleared.'); return; }
+  if (codeFirst.lineMarks.has(name)) {
+    const wanted = codeFirst.lineMarks.get(name);
+    const lines = [...code.querySelectorAll('.code-line')].filter(line => wanted.has(Number(line.dataset.line)));
+    lines.forEach(line => line.classList.add('cf-hit-line'));
+    announce(`${lines.length} ${lines.length === 1 ? 'line' : 'lines'}.`);
+    return;
+  }
   if (name === 'return') {
     const lines = [...code.querySelectorAll('.code-line')].filter(line => /^\s*(return|yield)\b/.test(line.querySelector('.line-content').textContent));
     lines.forEach(line => line.classList.add('cf-hit-line'));
@@ -161,11 +168,17 @@ function renderSummary(host, scope, data, calls) {
     if (items.length) row.append(...items); else row.append(el('span', 'cf-none', empty));
     host.append(row);
   };
-  const nameChip = (name, title) => {
-    const item = chip(name, () => highlightName(name), title);
-    item.dataset.name = name; item.setAttribute('aria-pressed', 'false');
+  // key names what the chip highlights: a name in the code, or a set of lines in codeFirst.lineMarks.
+  const nameChip = (name, title, key = name) => {
+    const item = chip(name, () => highlightName(key), title);
+    item.dataset.name = key; item.setAttribute('aria-pressed', 'false');
     return item;
   };
+  const lineChip = (name, title, key, lines) => {
+    codeFirst.lineMarks.set(key, lines);
+    return nameChip(name, title, key);
+  };
+  codeFirst.lineMarks = new Map();
   const params = scope.params.filter(param => !['self', 'cls'].includes(param.name));
   group('In', params.map(param => {
     const provided = /^Depends\(/.test(param.default || '');
@@ -174,20 +187,63 @@ function renderSummary(host, scope, data, calls) {
     return item;
   }), 'nothing');
   const targets = [...new Map(calls.map(call => [call.details.targets[0], call])).values()];
-  group('Calls', targets.map(call => {
+  const projectChips = targets.map(call => {
     const target = call.details.targets[0];
     const item = chip(model.scopes[target]?.qualified || calleeName(call), () => openCall(target), 'Open beside the code');
     item.dataset.target = target;
     if (call.details.callStatus === 'possible') { item.classList.add('cf-possible'); item.title = 'Probably calls this; open beside the code'; }
     return item;
-  }), 'no project functions');
-  const changed = [...new Set(flowNodes(data).filter(node => ['object_state', 'field'].includes(node.kind))
-    .map(node => String(node.name).split('.')[0]))].filter(name => /^[A-Za-z_]\w*$/.test(name));
-  group('Changes', changed.map(name => nameChip(name, 'Highlight where it is used and changed')), 'nothing it receives');
+  });
+  // Calls on what the method receives, such as repository.save(order) or db.commit(), are often its
+  // real side effects: library methods on a typed receiver, or targets that cannot be told from source.
+  // Builtin-typed parameters and string methods such as email.strip() are not collaborators.
+  const builtin = /^(Optional\[)?(str|int|float|bool|bytes|list|dict|set|tuple|frozenset|Decimal)\b/;
+  const received = new Set(scope.params.filter(param => !builtin.test(param.annotation || '')).map(param => param.name));
+  const readOnly = new Set(['strip', 'lstrip', 'rstrip', 'lower', 'upper', 'split', 'join', 'startswith', 'endswith',
+    'replace', 'format', 'encode', 'decode']);
+  const unresolved = new Map();
+  for (const call of flowItems(data.events)) {
+    if (call.kind !== 'call' || !['unknown', 'external'].includes(call.details?.callStatus) || !usableFlowSpan(call.span)) continue;
+    const name = calleeName(call), parts = name.split('.');
+    if (!/^\w+(\.\w+)+$/.test(name) || !received.has(parts[0]) || readOnly.has(parts.at(-1))) continue;
+    if (!unresolved.has(name)) unresolved.set(name, {lines: new Set(), call});
+    unresolved.get(name).lines.add(call.span.start);
+  }
+  const receivedChips = [...unresolved].map(([name, {lines, call}]) => {
+    const library = call.details.callStatus === 'external';
+    const target = String(call.details.callReason || '').split('outside index: ')[1];
+    const title = library ? `Library call${target ? ': ' + target : ''}. Highlight the line.`
+      : `Can't tell which method this calls: ${name.split('.')[0]} is passed in. Highlight the line.`;
+    const item = lineChip(name, title, 'call:' + name, lines);
+    if (!library) item.classList.add('cf-possible');
+    return item;
+  });
+  group('Calls', [...projectChips, ...receivedChips], 'no project functions');
+  // A name is a definite change if any write to it is; otherwise it is only a possible callee effect.
+  const changed = new Map();
+  for (const node of flowNodes(data).filter(node => ['object_state', 'field'].includes(node.kind))) {
+    const name = String(node.name).split('.')[0];
+    if (!/^[A-Za-z_]\w*$/.test(name)) continue;
+    const possible = node.certainty === 'possible';
+    if (!changed.has(name) || !possible) changed.set(name, possible ? node : null);
+  }
+  group('Changes', [...changed].map(([name, possible]) => {
+    const item = nameChip(name, possible ? `May change: ${possible.expression}` : 'Highlight where it is used and changed');
+    if (possible) item.classList.add('cf-possible');
+    return item;
+  }), 'nothing it receives');
   const output = scope.output || {};
   const returned = output.responseModel && output.responseModel !== 'None' ? output.responseModel : output.annotation ||
     (output.returns?.length ? [...new Set(output.returns)].join(' | ') : '');
   group('Returns', returned ? [chip(returned, () => highlightName('return'), 'Highlight return statements')] : [], 'nothing explicit');
+  const raised = new Map();
+  for (const event of flowItems(data.events).filter(event => event.kind === 'raise' && usableFlowSpan(event.span))) {
+    const expression = String(event.expression || '').replace(/^raise\b\s*/, '');
+    const name = expression ? expression.split(/[\s(]/)[0] : 're-raise';
+    if (!raised.has(name)) raised.set(name, new Set());
+    raised.get(name).add(event.span.start);
+  }
+  if (raised.size) group('Raises', [...raised].map(([name, lines]) => lineChip(name, 'Highlight where it is raised', 'raise:' + name, lines)), '');
 }
 
 // Right side: whatever is opened beside the code, then tests, callers, and models.
@@ -349,3 +405,40 @@ document.addEventListener('keydown', event => {
   if (codeFirst.highlight) highlightName(null, false);
   else if (codeFirst.beside) closeBeside();
 });
+
+// The divider between the code and the side pane sets the code's share of the width (30–80%).
+(() => {
+  const splitter = $('#cfSplitter'), body = splitter.parentElement, key = 'threadline-code-width', initial = 60;
+  const set = (share, save = false) => {
+    share = Math.round(Math.min(80, Math.max(30, share)));
+    body.style.setProperty('--cf-code', share + '%');
+    splitter.setAttribute('aria-valuenow', String(share));
+    splitter.setAttribute('aria-valuetext', `Code ${share}% of the width`);
+    if (save) try { localStorage.setItem(key, String(share)); } catch { /* Storage can be blocked. */ }
+  };
+  let saved = null;
+  try { saved = Number(localStorage.getItem(key)); } catch { /* Use the default. */ }
+  set(saved || initial);
+  const share = event => (event.clientX - body.getBoundingClientRect().left) / body.getBoundingClientRect().width * 100;
+  splitter.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    splitter.setPointerCapture(event.pointerId);
+    splitter.classList.add('dragging'); document.body.classList.add('resizing');
+  });
+  splitter.addEventListener('pointermove', event => { if (splitter.hasPointerCapture(event.pointerId)) set(share(event)); });
+  const finish = event => {
+    if (!splitter.classList.contains('dragging')) return;
+    splitter.classList.remove('dragging'); document.body.classList.remove('resizing');
+    set(share(event), true);
+  };
+  splitter.addEventListener('pointerup', finish);
+  splitter.addEventListener('pointercancel', finish);
+  splitter.addEventListener('dblclick', () => set(initial, true));
+  splitter.addEventListener('keydown', event => {
+    const current = Number(splitter.getAttribute('aria-valuenow'));
+    const next = {ArrowLeft: current - 5, ArrowRight: current + 5, Home: 30, End: 80, Enter: initial}[event.key];
+    if (next === undefined) return;
+    event.preventDefault(); set(next, true);
+  });
+})();

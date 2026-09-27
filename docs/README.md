@@ -40,7 +40,7 @@ Continue with the [usage guide](USING_THREADLINE.md) for Git change review, sour
 | [Accessibility](ACCESSIBILITY.md) | Keyboard navigation, browser checks, and remaining manual checks. |
 | [Performance and resource budgets](PERFORMANCE.md) | Analysis limits, measured repository sizes, and provisional budgets. |
 
-Call labels describe static evidence: **supported**, **possible**, **external**, or **unknown**. They do not establish observed execution or prove correctness. Check **Coverage** in the browser for parse failures, exclusions, and unmodeled syntax.
+Call labels describe static evidence: **supported**, **possible**, **external**, or **unknown**. They do not establish observed execution or prove correctness. Check **Instructions → Coverage** in the browser for parse failures, exclusions, and unmodeled syntax.
 
 ## Check validation and release readiness
 

@@ -78,11 +78,11 @@ No target-project installation or configuration is needed. Maintainers can follo
 
 A method is reviewed as its own code:
 
-- **Summary**: *In* (parameters; framework-provided ones are dashed), *Calls* (project functions it calls), *Changes* (objects and fields it modifies), and *Returns*. Select an input or change to highlight it in the code, or a call to open it.
+- **Summary**: *In* (parameters; framework-provided ones are dashed), *Calls* (project functions it calls, plus methods called on objects passed in, such as `db.commit` or `repository.save`; dashed when the target cannot be told from source), *Changes* (objects and fields it modifies; dashed when only a called function might change them), *Returns*, and *Raises* (shown only when the method raises). Select an item to highlight it in the code, or a project call to open it.
 - **Code**: only the selected function or method, including its signature and decorators. Select a name to highlight every use in the method; assignments show in bold. Calls into your project are underlined and open beside the code. Highlighting matches names within the method; it is not a runtime value trace.
 - **Beside the code**: the opened call, test, or caller, with **Open →** to move into it; then **Tests**, **Callers**, and **Models**, each model shown as its declaration source.
 
-**Hide sidebar** gives the code the full width. <kbd>Esc</kbd> clears a highlight, then closes the side code.
+The **☰** button at the left of the header hides the sidebar to give the code the full width, and shows it again. Drag the divider between the code and the side pane to resize them, or focus it and use the arrow keys; double-click or Enter resets it. <kbd>Esc</kbd> clears a highlight, then closes the side code.
 
 For a route such as `dashboard(request: Request, db=Depends(get_db))`, `request`
 and `db` are declared inputs. `Project` in `select(Project)` is a reference to a
@@ -97,7 +97,7 @@ in indexed source. A later
 `apiFetch('/agents/usage')` in that template is a separate browser request,
 not another output of the Python method.
 
-Calls are labeled **Calls** (one source target), **Probably calls** (a likely target that inheritance, decorators, or reassignment could change), **Library** (outside the repository), or **Can't tell** (decided at runtime). Probable links use dashed outlines. The **?** next to *Source only · not executed* opens help and keyboard shortcuts.
+Calls are labeled **Calls** (one source target), **Probably calls** (a likely target that inheritance, decorators, or reassignment could change), **Library** (outside the repository), or **Can't tell** (decided at runtime). Probable links use dashed outlines. **Instructions** in the bottom-right corner opens how to read the review, keyboard shortcuts, and source **Coverage**.
 
 The **call map** lists the project functions a method reaches, nested under
 their callers. Every step shows its name, the same small tags (*if*, *later*,

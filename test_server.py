@@ -34,6 +34,13 @@ class ServerTests(unittest.TestCase):
             self.assertGreater(server.server_port,0)
         finally: server.server_close()
 
+    def test_busy_default_port_falls_back_to_a_free_port(self):
+        busy=self.server.server_port
+        with self.assertRaises(OSError): make_server(self.root,port=busy)
+        server=make_server(self.root,port=busy,any_port_if_busy=True)
+        try: self.assertNotEqual(server.server_port,busy)
+        finally: server.server_close()
+
     def refresh_request(self):
         with urlopen(self.url+'/api/session') as response: token=json.load(response)['token']
         return Request(self.url+'/api/reindex',method='POST',headers={'X-Threadline-Token':token})

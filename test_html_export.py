@@ -48,9 +48,27 @@ class HTMLExportTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob('.threadline-*')), [])
 
     def test_rejects_source_filename_as_output(self):
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(['review', str(self.root), '--output', str(self.root / 'app.py'), '--no-open']), 2)
         self.assertEqual((self.root / 'app.py').read_text(), self.source)
+
+
+    def test_review_errors_are_plain_text_and_checked_before_analysis(self):
+        errors = io.StringIO()
+        with patch('threadline.agent_cli.SnapshotStore') as store, \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
+            code = main(['review', str(self.root), '--output', str(self.root / 'missing' / 'review.html'), '--no-open'])
+        self.assertEqual(code, 2)
+        store.assert_not_called()
+        self.assertEqual(errors.getvalue(), f"threadline: error: --output folder does not exist: {self.root.resolve() / 'missing'}\n")
+
+    def test_review_warns_when_no_python_files_are_found(self):
+        empty = self.root / 'empty'
+        empty.mkdir()
+        errors = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
+            self.assertEqual(main(['review', str(empty), '--output', str(self.root / 'review.html'), '--no-open']), 0)
+        self.assertIn('no Python files found', errors.getvalue())
 
 
 if __name__ == '__main__':

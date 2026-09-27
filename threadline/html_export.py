@@ -99,10 +99,15 @@ def write_html(store: SnapshotStore, output: str | Path) -> Path:
     target = Path(output).expanduser().resolve()
     if target.suffix.lower() not in ('.html', '.htm'):
         raise ThreadlineError('--output must name an .html or .htm file')
+    if not target.parent.is_dir():
+        raise ThreadlineError(f'--output folder does not exist: {target.parent}')
     assets = files('threadline.static')
     document = assets.joinpath('index.html').read_text(encoding='utf-8')
     document = document.replace('<link rel="stylesheet" href="styles.css">',
                                 '<style>' + assets.joinpath('styles.css').read_text(encoding='utf-8') + '</style>')
+    # The theme script stays in <head> so a saved theme applies before the first paint.
+    document = document.replace('<script src="theme.js"></script>',
+                                '<script>' + assets.joinpath('theme.js').read_text(encoding='utf-8') + '</script>')
     # Inline scripts run after the body exists, in the same order as deferred scripts.
     scripts = []
     for name in ('app', 'workflow', 'method', 'review_data', 'codefirst'):

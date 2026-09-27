@@ -186,6 +186,24 @@
       ]
     },
     {
+      "name": "dataclass construction",
+      "files": {
+        "app.py": "from dataclasses import dataclass\n@dataclass(frozen=True)\nclass Order:\n    total: int\ndef run(total):\n    return Order(total)\n"
+      },
+      "checks": [
+        {"scope": "run", "call": "Order", "allowedStatuses": ["supported"], "allowedTargets": ["app.py:Order"], "directTarget": true}
+      ]
+    },
+    {
+      "name": "project decorator named dataclass",
+      "files": {
+        "app.py": "def dataclass(cls):\n    return lambda *args: None\n@dataclass\nclass Order:\n    total: int\ndef run(total):\n    return Order(total)\n"
+      },
+      "checks": [
+        {"scope": "run", "call": "Order", "allowedStatuses": ["possible", "unknown"], "allowedTargets": ["app.py:Order"], "directTarget": false}
+      ]
+    },
+    {
       "name": "callback parameter",
       "files": {
         "app.py": "def run(callback, value):\n    return callback(value)\n"

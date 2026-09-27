@@ -17,6 +17,8 @@ MAX_TOTAL_BYTES = 64 * 1024 * 1024
 MAX_FILES = 10000
 MAX_AST_NODES = 2_000_000
 MAX_ANALYSIS_SECONDS = 60
+# Class decorators that return the decorated class itself, so constructing it is still a direct call.
+TRANSPARENT_CLASS_DECORATORS = {'dataclasses.dataclass', 'functools.total_ordering'}
 
 
 class AnalysisLimitError(ValueError):
@@ -706,11 +708,29 @@ class Analyzer:
             return ''
         return 'local definition or import may not be bound before this call'
 
+    def transparent_decorators(self, target):
+        """True when the target has no decorators, or only imported ones like `@dataclass` that return the class."""
+        if not target['decorators']:
+            return True
+        owner = self.scopes.get(target['parent'])
+        if target['kind'] != 'class' or not owner:
+            return False
+        for decorator in target['decorators']:
+            try:
+                node = ast.parse(decorator, mode='eval').body
+            except SyntaxError:
+                return False
+            if isinstance(node, ast.Call):
+                node = node.func
+            if self.imported_path(owner, node) not in TRANSPARENT_CLASS_DECORATORS:
+                return False
+        return True
+
     def target_result(self, targets, status, reason, scope=None, receiver=None, call_node=None):
         targets = list(dict.fromkeys(targets))
         if not targets:
             return [], status, reason
-        decorated = any(self.scopes[target]['decorators'] for target in targets)
+        decorated = any(not self.transparent_decorators(self.scopes[target]) for target in targets)
         shadowed = False
         if scope and receiver:
             cursor = scope

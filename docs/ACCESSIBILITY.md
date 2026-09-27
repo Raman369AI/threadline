@@ -2,6 +2,14 @@
 
 [Documentation home](README.md) · [Project home](../README.md)
 
+## Dark mode — 2026-09-26
+
+The review follows the system light or dark setting; **Theme** in the header switches
+between System, Light, and Dark and is remembered in that browser. Every audited state
+below is now checked by axe in both light and dark themes: Chrome 153 on Linux passed
+84 checks with zero axe violations across 24 states in each theme, including resizing the code pane from the keyboard and moving focus into and out of the Instructions panel. Native Safari has not
+been rerun with dark mode.
+
 ## Current local candidate — 2026-09-24
 
 Chrome 153 on Linux passed 56 keyboard, reflow, zoom, and accessibility checks

@@ -3,22 +3,24 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Threadline · Python review</title>
-<link rel="stylesheet" href="styles.css"><script src="app.js" defer></script><script src="workflow.js" defer></script><script src="method.js" defer></script><script src="review_data.js" defer></script><script src="codefirst.js" defer></script>
+<link rel="stylesheet" href="styles.css"><script src="theme.js"></script><script src="app.js" defer></script><script src="workflow.js" defer></script><script src="method.js" defer></script><script src="review_data.js" defer></script><script src="codefirst.js" defer></script>
 </head>
 <body>
 <a href="#reviewWorkspace" class="skip-link">Skip to review</a>
 <header class="topbar">
+  <button id="sidebarToggle" class="menu-button" type="button" aria-expanded="true" aria-controls="repositoryNavigator" aria-label="Hide sidebar" title="Hide sidebar"><svg aria-hidden="true" viewBox="0 0 20 20" width="20" height="20"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
   <a class="brand" href="#" aria-label="Threadline home"><span class="brand-icon" aria-hidden="true">↳</span> threadline</a>
   <span class="top-divider"></span><span id="projectName">Loading source…</span>
-  <button id="analysisStatus" class="analysis-status" aria-controls="coveragePanel" hidden></button>
-  <span class="top-spacer"></span><button id="helpButton" class="static-state" aria-expanded="false" aria-controls="helpPanel" title="How to read this review" aria-label="Source only, not executed. How to read this review"><i></i> <span class="static-label">Source only · not executed</span> <span class="help-mark" aria-hidden="true">?</span></button>
-  <button id="sidebarToggle" class="quiet-button" aria-expanded="true" aria-controls="repositoryNavigator">Hide sidebar</button>
-  <button id="coverageButton" class="quiet-button" aria-expanded="false" aria-controls="coveragePanel">Coverage</button>
+  <button id="analysisStatus" class="analysis-status" aria-controls="helpPanel" hidden></button>
+  <span class="top-spacer"></span>
+  <button id="themeButton" class="quiet-button" type="button">Theme: System</button>
   <button id="refreshButton" class="quiet-button" title="Read the current files again">↻ Refresh source</button>
 </header>
-<section id="helpPanel" class="coverage-panel help-panel" tabindex="-1" role="region" aria-label="How to read this review" hidden>
-  <div class="help-heading"><h2>How to read this review</h2><button id="helpClose" class="quiet-button" type="button" aria-label="Close help">Close</button></div>
-  <p>Threadline reads your Python source. It never runs it, so every link below is what the code says, not what happened at runtime. Tests are linked the same way; they are not run and coverage is not measured.</p>
+<section id="helpPanel" class="coverage-panel help-panel" tabindex="-1" role="region" aria-labelledby="instructionsTitle" hidden>
+  <div class="help-heading"><h2 id="instructionsTitle">Instructions</h2><button id="helpClose" class="quiet-button" type="button" aria-label="Close instructions">Close</button></div>
+  <div class="instructions-tabs" role="group" aria-label="Instructions section"><button id="guideTab" type="button" aria-pressed="true" aria-controls="helpGuide">How to read</button><button id="coverageTab" type="button" aria-pressed="false" aria-controls="coveragePanel">Coverage</button></div>
+  <div id="helpGuide">
+  <p><strong>Source only, not executed.</strong> Threadline reads your Python source. It never runs it, so every link below is what the code says, not what happened at runtime. Tests are linked the same way; they are not run and coverage is not measured.</p>
   <h3>How sure a link is</h3>
   <dl class="legend">
     <dt><span class="certainty supported">Calls</span></dt><dd>The source names exactly one method.</dd>
@@ -35,15 +37,16 @@
     <dt><span class="stage-tag">new object</span></dt><dd>Creates an object; its initializer runs.</dd>
   </dl>
   <h3>Reading a method</h3>
-  <p>The summary lists what comes in, the project functions it calls, what it changes, and what it returns. Select a name to highlight every use; assignments show in bold. Select an underlined call, a test, or a caller to read it beside the code, and <strong>Open →</strong> to move into it. <strong>← Back</strong> returns.</p>
+  <p>The summary lists what comes in, the functions it calls, what it changes, what it returns, and what it raises. Calls also include methods on objects passed in, such as <code>db.commit</code> or <code>repository.save</code>; they are dashed when the target cannot be told from source. A dashed item is uncertain: a call that probably goes there, or a change a called function might make. Select a name to highlight every use; assignments show in bold. Select an underlined call, a test, or a caller to read it beside the code, and <strong>Open →</strong> to move into it. <strong>← Back</strong> returns.</p>
   <dl class="legend shortcuts">
     <dt><kbd>/</kbd></dt><dd>Search</dd>
     <dt><kbd>Esc</kbd></dt><dd>Clear the highlight, then close the side code</dd>
     <dt><kbd>Backspace</kbd></dt><dd>Back along the path</dd>
-    <dt><kbd>?</kbd></dt><dd>Show or hide this help</dd>
+    <dt><kbd>?</kbd></dt><dd>Show or hide these instructions</dd>
   </dl>
+  </div>
+  <div id="coveragePanel" class="coverage-section" tabindex="-1" role="region" aria-label="Source coverage" hidden></div>
 </section>
-<section id="coveragePanel" class="coverage-panel" tabindex="-1" role="region" aria-label="Source coverage" hidden></section>
 <div id="reviewError" class="review-error error" role="region" aria-label="Review error" hidden></div>
 <main id="reviewWorkspace" class="workspace" tabindex="-1" aria-label="Review workspace">
   <aside id="repositoryNavigator" class="navigator" aria-label="Repository navigator">
@@ -70,12 +73,14 @@
       <p class="cf-hint">Select a name to highlight its uses. Select an underlined call, a test, or a caller to open it beside the code.</p>
       <div class="cf-body">
         <div id="cfCode" class="code-window cf-code wrap-code" role="region" tabindex="0" aria-label="Method source"></div>
+        <div id="cfSplitter" class="cf-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="cfCode" aria-label="Code pane width" aria-valuemin="30" aria-valuemax="80" aria-valuenow="60" title="Drag to resize; double-click to reset"></div>
         <aside id="cfContext" class="cf-context" aria-label="Opened code, tests, callers, and models"></aside>
       </div>
     </section>
   </section>
   <section id="comparisonPanel" class="comparison-panel" aria-label="Before and after source comparison" hidden></section>
 </main>
+<button id="helpButton" class="help-fab" type="button" aria-expanded="false" aria-controls="helpPanel" title="How to read this review, and source coverage" aria-label="Instructions: how to read this review, and source coverage"><span class="help-mark" aria-hidden="true">?</span><span class="help-fab-label">Instructions</span></button>
 <div id="announcement" class="sr-only" aria-live="polite"></div>
 </body>
 </html>

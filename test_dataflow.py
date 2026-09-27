@@ -357,5 +357,19 @@ def view(request):
         self.assertIn(mutation['id'], trace['eventIds'])
 
 
+    def test_method_call_on_immutable_parameter_is_not_a_possible_caller_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'app.py').write_text(
+                'def clean(email: str | None) -> str:\n    return email.strip()\n'
+                'def fill(items: list) -> None:\n    items.append(1)\n'
+                'def run(email, items):\n    clean(email)\n    fill(items)\n')
+            model = analyze(root)
+            scope = next(scope for scope in model['scopes'].values() if scope['name'] == 'run')
+            flow = build_dataflow(model, scope['id'])
+        changed = [row['name'] for row in flow['nodes'] if row['kind'] == 'object_state']
+        self.assertEqual(changed, ['items'])
+
+
 if __name__ == '__main__':
     unittest.main()

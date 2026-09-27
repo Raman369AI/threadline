@@ -8,6 +8,7 @@ import stat
 import sys
 import time
 import os
+import re
 import tokenize
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -62,6 +63,19 @@ def read_source_bytes(path, root, limit=MAX_FILE_BYTES):
 
 
 SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+
+
+def library_names(status, reason, func):
+    """Qualified library targets an external call may reach, such as requests.post or
+    sqlalchemy.orm.Session.commit, read from the resolution reason this module writes."""
+    if status != 'external':
+        return []
+    if 'receiver type candidate outside index: ' in reason:
+        return [name.strip() for name in reason.split('outside index: ', 1)[1].split(',')]
+    if reason.startswith('builtin candidate') and isinstance(func, ast.Name):
+        return ['builtins.' + func.id]
+    match = re.search(r'\bimport ([\w.]+)', reason)
+    return [match.group(1)] if match else []
 
 
 def parse_error_message(exc):
@@ -532,7 +546,8 @@ class Analyzer:
             elif isinstance(child, (ast.With, ast.AsyncWith)):
                 for item in child.items:
                     if item.optional_vars:
-                        remember(item.optional_vars)
+                        # Clients, sessions, and files usually return themselves from __enter__.
+                        remember(item.optional_vars, item.context_expr)
             elif isinstance(child, ast.ExceptHandler) and child.name:
                 remember(ast.Name(id=child.name, ctx=ast.Store()))
             elif isinstance(child, ast.NamedExpr):
@@ -975,8 +990,11 @@ class Analyzer:
                         class_targets = self.factory_classes(class_name, origin)
                     members.extend(target for class_id in class_targets for target in self.member_targets(class_id, func.attr))
                     if not class_targets:
-                        imported = self.imported_name(origin, class_name)
-                        if imported != class_name:
+                        try:
+                            imported = self.imported_path(origin, ast.parse(class_name, mode='eval').body)
+                        except SyntaxError:
+                            imported = None
+                        if imported:
                             external.append(imported + '.' + func.attr)
                 if members:
                     return self.callable_member_result(members, 'possible', 'inferred receiver ' + text(receiver) + '; runtime dispatch can vary')
@@ -1214,6 +1232,7 @@ class Analyzer:
                 call = {'id': self.ident(node, file), 'scope': scope['id'], 'name': text(node.func), 'expression': short(text(node), 180),
                         'span': self.span(node, file), 'targets': targets, 'status': status, 'reason': reason,
                         'reasonCode': self.reason_code(status, reason),
+                        'library': library_names(status, reason, node.func),
                         'arguments': [text(arg) for arg in node.args] + [(kw.arg + '=' if kw.arg else '**') + text(kw.value) for kw in node.keywords],
                         'bindings': bindings, 'receiverBindings': receiver_bindings,
                         'candidateEvidence': self.receiver_evidence(node.func, scope, targets),
@@ -1453,6 +1472,8 @@ class Analyzer:
 def analyze(root, *, source_roots=None, exclude=None):
     from .workflows import build_workflows
     model = Analyzer(root, source_roots=source_roots, exclude=exclude).run()
+    from .effects import attach_effects
+    attach_effects(model)
     model["workflows"] = build_workflows(model)
     from .workflows import suggested_entrypoints
     model["entrypoints"] = suggested_entrypoints(model)

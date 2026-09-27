@@ -4,6 +4,8 @@
 
 - Infer a factory's result without a return annotation when every return constructs a class (`return Repo()`, `return build()`), and resolve a name assigned once from a function (`alias = clean`) as a probable alias.
 - Name the Python that parsed a file in syntax errors, and suggest running Threadline with a newer Python when the file may use newer syntax.
+- Add an *Effects* row to the method summary: DB, network, and file reads and writes, processes, and logging from known library calls, propagated through resolved project calls with their path ("DB write via `update_user`"). *Raises* also lists exceptions from called project functions. `threadline method` returns the records as `effects`.
+- Type receivers bound by `with X() as y:` and by dotted library factories such as `logging.getLogger(__name__)`, and record the library target of every external call.
 - Cross-check supported call targets against pyright in CI, on this repository and on flask and requests; any disagreement fails the build.
 - Render a method once when it is opened; building its call map selected it again and redrew the view, briefly showing "Loading code…" and fetching it twice.
 - Resolve names bound at module level (`FEE = 2`, including inside top-level `if`/`try` blocks) as module globals with their value, instead of unknown names with an "unbound read" gap.

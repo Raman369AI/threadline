@@ -27,6 +27,11 @@ what a name refers to:
   reported unbound. `mustBeUnbound` requires the opposite: the read is out of scope, as
   after a comprehension or an `except` clause.
 
+- `"kind": "effects"` lists effects a method must have, such as `db write` with a
+  `certainty`, a `detail` like `HTTPException` for `raises`, a first hop in `via`, or
+  `direct`, and effect classes it must not have, such as `network write` for a
+  function that only reads a database.
+
 Pair each fix with a contrasting check, for example a callee that really mutates next to
 one that only reads, so a case cannot pass by over-correcting.
 

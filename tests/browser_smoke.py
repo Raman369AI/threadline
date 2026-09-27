@@ -410,6 +410,9 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         checks['summary_lists_received_calls_and_raises']=js("(()=>{const t=document.querySelector('#cfSummary').textContent;return t.includes('notifier.queue_receipt') && t.includes('Raises') && t.includes('ValueError') && !t.includes('logger.info')})()")
         js("document.querySelector('#cfSummary [data-name=\"call:repository.save\"]').click()")
         checks['received_call_highlights_its_line']=js("[...document.querySelectorAll('#cfCode .cf-hit-line')].map(l=>l.textContent).join('|').includes('repository.save(order)')")
+        checks['effects_row_lists_logging']=js("(()=>{const row=[...document.querySelectorAll('#cfSummary .cf-group')].find(r=>r.querySelector('.cf-label').textContent==='Effects');return !!row && row.textContent.includes('logging') && !row.textContent.includes('DB write')})()")
+        js("[...document.querySelectorAll('#cfSummary .cf-chip')].find(c=>c.textContent==='logging').click()")
+        checks['effect_chip_highlights_its_line']=js("[...document.querySelectorAll('#cfCode .cf-hit-line')].map(l=>l.textContent).join('|').includes('logger.info(')")
         if not html_review:
             (fixture_root/'broken.py').write_text('def incomplete(:\n')
             js("load(true)")

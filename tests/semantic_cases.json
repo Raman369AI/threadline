@@ -497,6 +497,37 @@
             {"scope": "chained", "call": "second", "allowedStatuses": ["possible"], "allowedTargets": ["app.py:clean"], "requiredTargets": ["app.py:clean"], "directTarget": false},
             {"scope": "rebound", "call": "alias", "allowedStatuses": ["unknown"], "allowedTargets": [], "directTarget": false}
           ]
+    },
+    {
+      "name": "effect catalog: library calls",
+      "files": {
+        "app.py": "import json\nimport logging\nimport os\nimport subprocess\nfrom pathlib import Path\n\nimport httpx\nimport requests\nfrom sqlalchemy import delete, select, update\nfrom sqlalchemy.ext.asyncio import AsyncSession\nfrom sqlalchemy.orm import Session\n\nlogger = logging.getLogger(__name__)\n\n\nasync def save_user(db: AsyncSession, user):\n    db.add(user)\n    await db.commit()\n    await db.refresh(user)\n    return user\n\n\nasync def load_user(db: AsyncSession, user_id):\n    result = await db.execute(select(User).where(User.id == user_id))\n    return result.scalar_one_or_none()\n\n\ndef purge(session: Session, user_id):\n    session.execute(delete(User).where(User.id == user_id))\n    session.commit()\n\n\ndef untyped_save(session, user):\n    session.add(user)\n    session.commit()\n\n\ndef notify(url, payload):\n    logger.info(\"notifying %s\", url)\n    requests.post(url, json=payload)\n    return requests.get(url).json()\n\n\ndef fetch(url):\n    with httpx.Client() as client:\n        return client.get(url).text\n\n\ndef export(path, data):\n    with open(path, \"w\") as handle:\n        json.dump(data, handle)\n    Path(path).with_suffix(\".bak\").write_text(\"x\")\n    os.remove(path)\n\n\ndef read_config(path: Path):\n    with open(path) as handle:\n        return handle.read() + path.read_text()\n\n\ndef run_tool():\n    return subprocess.run([\"ls\"], check=True)\n"
+      },
+      "checks": [
+            {"scope": "save_user", "kind": "effects", "mustHave": [{"effect": "db write", "certainty": "definite", "direct": true}, {"effect": "db read", "certainty": "definite"}], "mustNotHave": ["network write", "network read", "file write"]},
+            {"scope": "load_user", "kind": "effects", "mustHave": [{"effect": "db read", "certainty": "definite"}], "mustNotHave": ["db write"]},
+            {"scope": "purge", "kind": "effects", "mustHave": [{"effect": "db write", "certainty": "definite"}], "mustNotHave": ["db read"]},
+            {"scope": "untyped_save", "kind": "effects", "mustHave": [{"effect": "db write", "certainty": "possible"}], "mustNotHave": ["db read"]},
+            {"scope": "notify", "kind": "effects", "mustHave": [{"effect": "network write", "certainty": "definite"}, {"effect": "network read", "certainty": "definite"}, {"effect": "logging", "certainty": "definite"}], "mustNotHave": ["db write", "file write"]},
+            {"scope": "fetch", "kind": "effects", "mustHave": [{"effect": "network read"}], "mustNotHave": ["network write"]},
+            {"scope": "export", "kind": "effects", "mustHave": [{"effect": "file write", "certainty": "definite"}], "mustNotHave": ["file read", "network write"]},
+            {"scope": "read_config", "kind": "effects", "mustHave": [{"effect": "file read", "certainty": "definite"}], "mustNotHave": ["file write"]},
+            {"scope": "run_tool", "kind": "effects", "mustHave": [{"effect": "process", "certainty": "definite"}], "mustNotHave": ["file write"]},
+            {"scope": "fetch", "call": "client.get", "allowedStatuses": ["external"], "allowedTargets": [], "directTarget": false},
+            {"scope": "notify", "call": "logger.info", "allowedStatuses": ["external"], "allowedTargets": [], "directTarget": false}
+          ]
+    },
+    {
+      "name": "effect catalog: propagation through project calls",
+      "files": {
+        "crud.py": "from sqlalchemy.orm import Session\n\ndef update_user(session: Session, user):\n    session.merge(user)\n    session.commit()\n\ndef pure(value):\n    return value * 2\n\ndef ping(depth):\n    return pong(depth)\n\ndef pong(depth):\n    return ping(depth)\n",
+        "api.py": "from fastapi import HTTPException\nimport crud\n\ndef check_access(user):\n    if not user:\n        raise HTTPException(status_code=403)\n\ndef update(session, user):\n    check_access(user)\n    crud.update_user(session, user)\n    return crud.pure(1)\n\ndef compute(value):\n    return crud.pure(value) + crud.ping(3)\n"
+      },
+      "checks": [
+            {"scope": "update", "kind": "effects", "mustHave": [{"effect": "db write", "via": "update_user", "direct": false}, {"effect": "raises", "detail": "HTTPException", "via": "check_access"}], "mustNotHave": ["network write"]},
+            {"scope": "update_user", "kind": "effects", "mustHave": [{"effect": "db write", "certainty": "definite", "direct": true}]},
+            {"scope": "compute", "kind": "effects", "mustNotHave": ["db write", "db read", "network write", "network read", "file write", "file read", "process", "logging", "raises"]}
+          ]
     }
   ]
 }

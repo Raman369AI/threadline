@@ -611,6 +611,7 @@ class SnapshotStore:
                 "kind": scope["kind"], "file": scope["file"], "span": reference["span"], "evidenceId": reference["evidenceId"],
                 "inputs": copy.deepcopy(scope["params"]), "output": copy.deepcopy(scope["output"]),
                 "decorators": list(scope["decorators"]), "stats": copy.deepcopy(scope["stats"]),
+                "effects": copy.deepcopy(scope.get("sideEffects", [])),
                 "operations": add_evidence_ids(_page(operations, cursor, limit))}
 
     def get_method_source(self, symbol_id: str, *, snapshot_id: str | None = None,

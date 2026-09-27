@@ -24,6 +24,9 @@ def evaluate():
             model = store.current
             for expected in case['checks']:
                 scope = next(scope for scope in model['scopes'].values() if scope['qualified'] == expected['scope'])
+                if expected.get('kind') == 'effects':
+                    rows.append(effects_check(case['name'], expected, scope))
+                    continue
                 if expected.get('kind') in ('changes', 'name'):
                     rows.append(dataflow_check(case['name'], expected, build_dataflow(model, scope['id'])))
                     continue
@@ -51,6 +54,23 @@ def evaluate():
             'directTargetsResolved':sum(row.get('status') == 'supported' for row in direct),
             'directTargetsAnnotated':len(direct), 'results':rows,
             'scope':'Curated source expectations, not execution observations or a complete semantic oracle.'}
+
+
+def effects_check(case, expected, scope):
+    """`effects`: effect classes a method must have (with optional certainty, detail, and first hop) or must not."""
+    effects = scope.get('sideEffects', [])
+    def matches(want, effect):
+        return (effect['effect'] == want['effect']
+                and want.get('certainty', effect['certainty']) == effect['certainty']
+                and want.get('detail', effect.get('detail')) == effect.get('detail')
+                and ('via' not in want or effect['via'][:1] == [want['via']])
+                and ('direct' not in want or (not effect['via']) == want['direct']))
+    missing = [want for want in expected.get('mustHave', []) if not any(matches(want, effect) for effect in effects)]
+    present = {effect['effect'] for effect in effects}
+    unexpected = sorted(set(expected.get('mustNotHave', [])) & present)
+    return {'case': case, 'check': 'effects', 'scope': expected['scope'],
+            'effects': sorted({f"{e['effect']}{' ' + e['detail'] if e.get('detail') else ''} ({e['certainty']}{', via ' + e['via'][0] if e['via'] else ''})" for e in effects}),
+            'missing': missing, 'unexpected': unexpected, 'passed': not missing and not unexpected, 'falseSupported': False}
 
 
 def dataflow_check(case, expected, flow):

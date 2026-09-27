@@ -169,6 +169,7 @@ function renderSummary(host, scope, data, calls) {
     row.append(el('span', 'cf-label', label));
     if (items.length) row.append(...items); else row.append(el('span', 'cf-none', empty));
     host.append(row);
+    return row;
   };
   // key names what the chip highlights: a name in the code, or a set of lines in codeFirst.lineMarks.
   const nameChip = (name, title, key = name) => {
@@ -240,6 +241,7 @@ function renderSummary(host, scope, data, calls) {
     if (possible) item.classList.add('cf-possible');
     return item;
   }), 'nothing it receives');
+  renderEffects(group, lineChip, scope.sideEffects || []);
   const output = scope.output || {};
   const returned = output.responseModel && output.responseModel !== 'None' ? output.responseModel : output.annotation ||
     (output.returns?.length ? [...new Set(output.returns)].join(' | ') : '');
@@ -251,7 +253,65 @@ function renderSummary(host, scope, data, calls) {
     if (!raised.has(name)) raised.set(name, new Set());
     raised.get(name).add(event.span.start);
   }
-  if (raised.size) group('Raises', [...raised].map(([name, lines]) => lineChip(name, 'Highlight where it is raised', 'raise:' + name, lines)), '');
+  // Exceptions raised by called project functions follow the ones raised here.
+  const inherited = new Map();
+  for (const effect of (scope.sideEffects || []).filter(effect => effect.effect === 'raises' && effect.via.length && !raised.has(effect.detail))) {
+    if (!inherited.has(effect.detail)) inherited.set(effect.detail, effect);
+  }
+  const raisedChips = [...raised].map(([name, lines]) => lineChip(name, 'Highlight where it is raised', 'raise:' + name, lines));
+  const inheritedChips = [...inherited.values()].map(effect => effectChip(`${effect.detail} via ${shortName(effect.via[0])}`, [effect], null));
+  if (raised.size || inherited.size) group('Raises', capChips([...raisedChips, ...inheritedChips], 8), '');
+}
+
+// Effects: what the method does outside the program, directly or through the project code it calls.
+const EFFECT_ORDER = ['db write', 'db read', 'db access', 'network write', 'network read', 'network access',
+  'file write', 'file read', 'file access', 'process', 'logging'];
+const EFFECT_LABELS = {'db write': 'DB write', 'db read': 'DB read', 'db access': 'DB access',
+  'network write': 'network write', 'network read': 'network read', 'network access': 'network',
+  'file write': 'file write', 'file read': 'file read', 'file access': 'file access',
+  'process': 'runs process', 'logging': 'logging'};
+function shortName(qualified) {
+  return String(qualified).split('.').slice(-2).join('.');
+}
+function effectSource(effect) {
+  const where = effect.via.length ? 'via ' + effect.via.join(' → ') : `${effect.call || 'raise'} (line ${effect.lines.join(', ')})`;
+  return `${where}${effect.library ? ' · ' + effect.library : ''}${effect.certainty === 'possible' ? ' · possible' : ''}`;
+}
+function effectChip(label, effects, lineKey, lineChip) {
+  const direct = effects.filter(effect => !effect.via.length);
+  const title = effects.slice(0, 8).map(effectSource).join('\n') + (effects.length > 8 ? `\n+${effects.length - 8} more` : '');
+  let item;
+  if (direct.length && lineKey && lineChip) {
+    item = lineChip(label, title, lineKey, new Set(direct.flatMap(effect => effect.lines)));
+  } else {
+    const through = effects.find(effect => effect.through)?.through;
+    item = chip(label, () => through && openCall(through), title);
+  }
+  if (!effects.some(effect => effect.certainty === 'definite')) item.classList.add('cf-possible');
+  return item;
+}
+function capChips(chips, limit) {
+  if (chips.length <= limit) return chips;
+  const more = el('span', 'cf-none', `+${chips.length - limit} more`);
+  more.title = chips.slice(limit).map(item => item.textContent).join('\n');
+  return [...chips.slice(0, limit), more];
+}
+function renderEffects(group, lineChip, effects) {
+  const byEffect = new Map();
+  for (const effect of effects.filter(effect => effect.effect !== 'raises')) {
+    if (!byEffect.has(effect.effect)) byEffect.set(effect.effect, []);
+    byEffect.get(effect.effect).push(effect);
+  }
+  const chips = EFFECT_ORDER.filter(name => byEffect.has(name)).map(name => {
+    const found = byEffect.get(name), direct = found.some(effect => !effect.via.length);
+    const hops = [...new Set(found.filter(effect => effect.via.length).map(effect => effect.via[0]))];
+    const label = EFFECT_LABELS[name] + (direct ? '' : hops.length === 1 ? ` via ${shortName(hops[0])}` : ` via ${hops.length} calls`);
+    return effectChip(label, found, 'effect:' + name, lineChip);
+  });
+  const empty = el('span', 'cf-none', 'none found');
+  empty.title = 'Only known library calls are recognized: databases, HTTP, files, processes, and logging.';
+  const row = group('Effects', chips, '');
+  if (!chips.length) row.querySelector('.cf-none').replaceWith(empty);
 }
 
 // Right side: whatever is opened beside the code, then tests, callers, and models.

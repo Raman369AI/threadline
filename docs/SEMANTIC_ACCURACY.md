@@ -48,3 +48,20 @@ not mean those dispatch mechanisms are fully resolved.
 When adding a case, write the source expectation and its rationale before inspecting
 analyzer output. Do not relax certainty or target bounds merely to make a test pass.
 Use the pinned public-repository corpus alongside these focused examples.
+
+## Pyright cross-check
+
+`tests/pyright_crosscheck.py` compares Threadline's call targets with pyright, an
+independent static resolver, on a deterministic sample of up to 300 calls per status:
+
+```bash
+npm ci --prefix tests/browser-tools --ignore-scripts --no-audit --no-fund
+python tests/pyright_crosscheck.py --project . --repo flask --repo requests
+```
+
+It fails when pyright names a different project function for a call Threadline labels
+**supported**. Pyright having no answer is not a failure. Possible calls whose pyright
+target falls outside Threadline's candidates, and project targets pyright finds where
+Threadline reports unknown, are listed in the report as review leads. CI runs it on this
+repository and, in the public-repository job, on flask and requests. Pyright is a
+development tool only; Threadline does not depend on it at runtime.

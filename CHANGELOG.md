@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Infer a factory's result without a return annotation when every return constructs a class (`return Repo()`, `return build()`), and resolve a name assigned once from a function (`alias = clean`) as a probable alias.
+- Name the Python that parsed a file in syntax errors, and suggest running Threadline with a newer Python when the file may use newer syntax.
+- Cross-check supported call targets against pyright in CI, on this repository and on flask and requests; any disagreement fails the build.
 - Render a method once when it is opened; building its call map selected it again and redrew the view, briefly showing "Loading code…" and fetching it twice.
 - Resolve names bound at module level (`FEE = 2`, including inside top-level `if`/`try` blocks) as module globals with their value, instead of unknown names with an "unbound read" gap.
 - Stop reporting an argument as possibly changed when the callee only calls read-only methods on it (`count`, `index`, `get`, `keys`, `startswith`, …).

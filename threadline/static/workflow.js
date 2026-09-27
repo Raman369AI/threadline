@@ -193,8 +193,9 @@ async function openWorkflowCandidate(stage,id) {
 function renderWorkflowContext() {
   const host=$('#workflowContext');host.replaceChildren();
   const workflow=workflowState.profile,stage=workflow?.stages.find(s=>s.id===workflowState.stage);if(!stage)return;
-  const kicker=el('div','workflow-context-kicker','Call map');
-  if(stage.status&&!['supported','source-linked'].includes(stage.status))kicker.append(el('span','certainty '+stage.status,certaintyLabel(stage.status)));
+  const kicker=el('div','workflow-context-kicker','Selected in the call map: '+stage.label);
+  const uncertain=stage.status&&!['supported','source-linked'].includes(stage.status);
+  if(uncertain)kicker.append(el('span','certainty '+stage.status,certaintyLabel(stage.status)));
   host.append(kicker);
   const methods=stage.methods||[];
   if(stage.parent&&stage.data)host.append(el('p','workflow-context-data','Passes '+stage.data));
@@ -217,7 +218,9 @@ function renderWorkflowContext() {
   if(link) why.append(button('Why is this linked?','workflow-link-evidence',()=>inspectWorkflowLink(link)));
   if(stage.construction && stage.scope) why.append(button('Go to class →','scope-jump',()=>openWorkflowCandidate(stage,stage.scope)));
   if(why.childNodes.length)host.append(why);
-  if(!methods.includes(state.scope)) host.append(el('div','workflow-inspected-method',stage.callsite&&state.scope===(stage.callerScope||stage.evidence?.[0]?.scope)?'Showing '+scopeName(state.scope)+', where this call is written.':'The call map still has '+stage.label+' selected.'));
+  if(!methods.includes(state.scope)) host.append(el('div','workflow-inspected-method',stage.callsite&&state.scope===(stage.callerScope||stage.evidence?.[0]?.scope)?'Showing '+scopeName(state.scope)+', where this call is written.':'You opened '+scopeName(state.scope)+' from here.'));
+  // The heading already names the method, so a bare label with nothing to add is noise.
+  else if(host.childElementCount===1 && !uncertain) host.replaceChildren();
 }
 function syncWorkflowMethod() {
   if(workflowState.initialized&&workflowState.mode==='workflow') renderWorkflowContext();

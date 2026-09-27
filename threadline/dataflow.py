@@ -28,6 +28,9 @@ _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 _SCOPES = _FUNCTIONS + (ast.ClassDef,)
 _MUTATORS = {'append', 'extend', 'insert', 'add', 'update', 'setdefault', 'remove', 'discard', 'pop', 'popitem', 'clear', 'sort', 'reverse'}
 _CONTAINER_BUILTINS = {'list': 'list', 'sorted': 'list', 'dict': 'dict', 'set': 'set'}
+# A callee cannot change a caller's argument declared as one of these.
+_IMMUTABLE_TYPES = {'str', 'int', 'float', 'bool', 'bytes', 'complex', 'None', 'tuple', 'frozenset',
+                    'Decimal', 'decimal.Decimal', 'Fraction', 'fractions.Fraction'}
 
 
 def _text(node: ast.AST | None) -> str:
@@ -37,6 +40,32 @@ def _text(node: ast.AST | None) -> str:
         return ast.unparse(node)
     except (ValueError, RecursionError):
         return type(node).__name__
+
+
+def _immutable_annotation(annotation: str | None) -> bool:
+    """True for `str`, `int | None`, `Optional[str]`, `tuple[int, ...]`, and similar."""
+    if not annotation:
+        return False
+    try:
+        node = ast.parse(annotation, mode='eval').body
+    except SyntaxError:
+        return False
+
+    def immutable(item: ast.AST) -> bool:
+        if isinstance(item, ast.BinOp) and isinstance(item.op, ast.BitOr):
+            return immutable(item.left) and immutable(item.right)
+        if isinstance(item, ast.Subscript):
+            if _text(item.value) in ('Optional', 'typing.Optional', 'Union', 'typing.Union'):
+                values = item.slice.elts if isinstance(item.slice, ast.Tuple) else [item.slice]
+                return all(immutable(value) for value in values)
+            # tuple[list[int], ...] still holds mutable items, so only the outer type counts
+            return _text(item.value) in ('tuple', 'frozenset') and all(
+                immutable(value) for value in (item.slice.elts if isinstance(item.slice, ast.Tuple) else [item.slice])
+                if not (isinstance(value, ast.Constant) and value.value is Ellipsis))
+        if isinstance(item, ast.Constant):
+            return item.value is None or isinstance(item.value, str) and item.value in _IMMUTABLE_TYPES
+        return _text(item) in _IMMUTABLE_TYPES
+    return immutable(node)
 
 
 def _short(value: str, limit: int = 180) -> str:
@@ -728,7 +757,8 @@ class _Builder:
         mutation_sites = []
         omitted_returns = 0
         omitted_mutations = 0
-        parameter_names = {row['name'] for row in target['params']}
+        parameter_names = {row['name'] for row in target['params']
+                           if not _immutable_annotation(row.get('annotation'))}
         roots = callee.body if not isinstance(callee, ast.Lambda) else [callee.body]
         def body_nodes():
             for root in roots:

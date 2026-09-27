@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .schema import ExecutionContext, Workflow, WorkflowStage
+from .testlinks import is_test_file
 
 
 def nodes(flow):
@@ -196,15 +197,14 @@ def workflow_catalog(model):
                 entries.append(('commands', 'python -m '+scope['module'].removesuffix('.__main__')))
             # `python -m pkg` runs pkg/__main__.py; a main guard in __init__.py never fires that way.
             elif not scope['file'].endswith('__init__.py') and any('__main__' in node.get('label', '') and '__name__' in node.get('label', '') for node in nodes(scope['flow'])):
-                entries.append(('commands', 'python -m '+scope['module']))
+                # A test module's main guard usually just runs its tests; keep it apart from project commands.
+                entries.append(('testCommands' if is_test_file(scope['file']) else 'commands', 'python -m '+scope['module']))
             if not entries: continue
         if not entries: entries = [('methods', scope['qualified'])]
         for category, label in dict.fromkeys(entries):
             rows.append({'id': scope['id'], 'name': scope['qualified'], 'label': label,
                          'category': category, 'file': scope['file'], 'line': scope['span']['start'], 'span': scope['span'],
                          **({'httpMethods': http_methods[label]} if category == 'http' else {})})
-    from .testlinks import is_test_file
-    # Project scripts first; test modules with a main guard are runnable but rarely the start a reviewer wants.
     rows.sort(key=lambda row: (row['category'], is_test_file(row['file']), row['name'].split('.')[-1].startswith('__'), row['label'].casefold(), row['file'], row['line']))
     return rows
 

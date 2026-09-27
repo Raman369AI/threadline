@@ -109,6 +109,20 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             'search_always_visible':js("document.querySelector('#search').getBoundingClientRect().height>0"),
             'no_scope_filter':js("document.querySelector('#kindFilter')===null"),
         }
+        # Theme button cycles System -> Light -> Dark; a chosen theme survives a reload.
+        body_background="getComputedStyle(document.body).backgroundColor"
+        checks['theme_follows_system_by_default']=js("!document.documentElement.dataset.theme && document.querySelector('#themeButton').textContent==='Theme: System'")
+        js("document.querySelector('#themeButton').click()")
+        checks['theme_light']=js(f"document.documentElement.dataset.theme==='light' && {body_background}==='rgb(247, 248, 247)'")
+        js("document.querySelector('#themeButton').click()")
+        checks['theme_dark']=js(f"document.documentElement.dataset.theme==='dark' && {body_background}==='rgb(20, 24, 22)' && document.querySelector('#themeButton').textContent==='Theme: Dark'")
+        command('Page.reload')
+        for _ in range(100):
+            time.sleep(.05)
+            if js("typeof workflowState!=='undefined' && workflowState.initialized"):break
+        checks['theme_survives_reload']=js(f"document.documentElement.dataset.theme==='dark' && {body_background}==='rgb(20, 24, 22)'")
+        js("document.querySelector('#themeButton').click()")
+        checks['theme_back_to_system']=js("!document.documentElement.dataset.theme && localStorage.getItem('threadline-theme')===null")
         screenshot=command('Page.captureScreenshot',{'format':'png'})
         (Path(tempfile.gettempdir())/'threadline-workflow-chooser.png').write_bytes(base64.b64decode(screenshot['data']))
         for verb, expected in (('GET','list_tasks'),('POST','create_task')):
@@ -123,7 +137,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         for _ in range(100):
             if js("document.querySelector('#moduleResults [data-scope]')!==null"):break
             time.sleep(.02)
-        checks['module_reveals_only_its_methods']=js("[...document.querySelectorAll('#moduleResults .start-item')].every(b=>b.textContent.includes('api.py')) && state.scope===null")
+        checks['module_reveals_only_its_methods']=js("[...document.querySelectorAll('#moduleResults .start-item')].every(b=>b.dataset.scope.startsWith('api.py:')) && state.scope===null")
         js("[...document.querySelectorAll('#moduleResults .start-item')].find(b=>b.textContent.includes('submit_order')).click()")
         for _ in range(100):
             if js("workflowState.profile?.root===state.scope && document.querySelector('#methodName').textContent==='submit_order'"):break
@@ -341,7 +355,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         wait_for("document.querySelector('#cfTests .cf-row')!==null")
         checks['selected_test_lists_exercised_code']=js("document.querySelector('#cfTests h2').textContent.startsWith('Code this test reaches') && document.querySelector('#cfTests').textContent.includes('Service.entry')")
         js("document.querySelector('#sidebarToggle').click()")
-        checks['sidebar_can_collapse']=js("document.querySelector('.workspace').classList.contains('sidebar-collapsed') && document.querySelector('#sidebarToggle').textContent.includes('Show sidebar')")
+        checks['sidebar_can_collapse']=js("document.querySelector('.workspace').classList.contains('sidebar-collapsed') && document.querySelector('#sidebarToggle').getAttribute('aria-label')==='Show sidebar'")
         checks['sidebar_collapse_fills_width']=js("(()=>{const w=document.querySelector('.workspace').getBoundingClientRect(),r=document.querySelector('.review').getBoundingClientRect();return document.querySelector('#repositoryNavigator').getBoundingClientRect().width===0 && Math.abs(r.left-w.left)<2 && Math.abs(r.right-w.right)<2})()")
         command('Emulation.setDeviceMetricsOverride',{'width':390,'height':850,'deviceScaleFactor':1,'mobile':True})
         checks['sidebar_collapse_narrow_no_overflow']=js("document.documentElement.scrollWidth<=innerWidth")
@@ -351,6 +365,9 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         checks['help_opens_with_legend']=js("!document.querySelector('#helpPanel').hidden && document.querySelector('#helpPanel').textContent.includes('Probably calls') && document.querySelector('#helpButton').getAttribute('aria-expanded')==='true'")
         js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
         checks['help_closes_on_escape']=js("document.querySelector('#helpPanel').hidden")
+        js("document.querySelector('#helpButton').click()");js("document.querySelector('#coverageTab').click()")
+        checks['instructions_include_coverage']=js("!document.querySelector('#coveragePanel').hidden && document.querySelector('#helpGuide').hidden && document.querySelector('#coveragePanel').textContent.includes('Python files parsed') && document.querySelector('#coverageButton')===null")
+        js("document.querySelector('#guideTab').click()");js("document.querySelector('#helpClose').click()")
         js("(async()=>{const rows=await api('/api/symbols',{q:'unreachable',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='unreachable').id);await showSelectedWorkflow();workflowState.showLibrary=true;renderWorkflow();})()")
         checks['unreachable_workflow_stage_marked']=js("[...document.querySelectorAll('.workflow-stage.unreachable')].some(b=>b.querySelector('.stage-tag.tag-unreachable'))")
         js("(async()=>{const rows=await api('/api/symbols',{q:'conditional',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='conditional').id);await showSelectedWorkflow();})()")
@@ -378,13 +395,26 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         js("document.querySelector('#cfCode .cf-call').click()")
         wait_for("document.querySelector('#cfBeside .code-line')!==null")
         checks['call_opens_beside_code']=js("!document.querySelector('#cfBeside').hidden && document.querySelector('#cfBeside').textContent.includes('def place_order') && state.scope.includes('api.py')")
+        # Dragging the divider resizes the code pane and the width is remembered.
+        box=js("(()=>{const r=document.querySelector('#cfSplitter').getBoundingClientRect(),b=document.querySelector('.cf-body').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,left:b.left,width:b.width}})()")
+        for kind,x in (('mousePressed',box['x']),('mouseMoved',box['left']+box['width']*.4),('mouseReleased',box['left']+box['width']*.4)):
+            command('Input.dispatchMouseEvent',{'type':kind,'x':x,'y':box['y'],'button':'left','buttons':0 if kind=='mouseReleased' else 1,'clickCount':1})
+        checks['drag_resizes_code_pane']=js("(()=>{const v=Number(document.querySelector('#cfSplitter').getAttribute('aria-valuenow')),c=document.querySelector('#cfCode').getBoundingClientRect().width,b=document.querySelector('.cf-body').getBoundingClientRect().width;return v>=38&&v<=42&&Math.abs(c/b-v/100)<.03&&localStorage.getItem('threadline-code-width')===String(v)})()")
+        js("document.querySelector('#cfSplitter').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))")
+        checks['double_click_resets_code_pane']=js("document.querySelector('#cfSplitter').getAttribute('aria-valuenow')==='60'")
         checks['models_as_source']=js("[...document.querySelectorAll('#cfContext .data-model-item')].some(item=>item.textContent.includes('class Order'))")
+        js("(async()=>{const rows=await api('/api/symbols',{q:'place_order',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.name==='place_order').id);})()")
+        wait_for("document.querySelector('#cfSummary [data-name=\"call:repository.save\"]')!==null")
+        checks['summary_lists_received_calls_and_raises']=js("(()=>{const t=document.querySelector('#cfSummary').textContent;return t.includes('notifier.queue_receipt') && t.includes('Raises') && t.includes('ValueError') && !t.includes('logger.info')})()")
+        js("document.querySelector('#cfSummary [data-name=\"call:repository.save\"]').click()")
+        checks['received_call_highlights_its_line']=js("[...document.querySelectorAll('#cfCode .cf-hit-line')].map(l=>l.textContent).join('|').includes('repository.save(order)')")
         if not html_review:
             (fixture_root/'broken.py').write_text('def incomplete(:\n')
             js("load(true)")
             checks['parse_failure_prominent_and_retrievable']=js("!document.querySelector('#analysisStatus').hidden && document.querySelector('#analysisStatus').textContent.includes('1 analysis issue') && document.querySelector('#coveragePanel').textContent.includes('Analysis issues · 1')")
             js("document.querySelector('#analysisStatus').click()")
-            checks['parse_failure_badge_opens_coverage']=js("!document.querySelector('#coveragePanel').hidden")
+            checks['parse_failure_badge_opens_coverage']=js("!document.querySelector('#helpPanel').hidden && !document.querySelector('#coveragePanel').hidden && document.querySelector('#coverageTab').getAttribute('aria-pressed')==='true'")
+            js("document.querySelector('#helpClose').click()")
             (fixture_root/'broken.py').unlink()
             (fixture_root/'pyproject.toml').write_bytes(b'\xff')
             js("load(true)")

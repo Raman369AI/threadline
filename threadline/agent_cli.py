@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import sys
@@ -73,14 +74,17 @@ def _parser() -> JSONArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     review = sub.add_parser("review", help="open a live review or export a standalone HTML file")
-    review.add_argument("project")
-    review.add_argument("--port", type=int, default=4173)
-    review.add_argument("--no-open", action="store_true")
+    review.add_argument("project", help="repository directory to review")
+    review.add_argument("--port", type=int, default=None,
+                        help="local port (default 4173, or any free port if 4173 is busy)")
+    review.add_argument("--no-open", action="store_true", help="do not open a browser")
     review.add_argument("--output", help="write a standalone HTML review and exit (no server)")
-    review.add_argument("--source-root", action="append")
-    review.add_argument("--exclude", action="append")
-    review.add_argument("--file", action="append", dest="change_files")
-    review.add_argument("--base", help="show Python changes against this Git revision")
+    review.add_argument("--source-root", action="append",
+                        help="review only this subdirectory; repeat for several")
+    review.add_argument("--exclude", action="append", help="skip this path; repeat for several")
+    review.add_argument("--file", action="append", dest="change_files",
+                        help="with --base, show changes only for this file; repeat for several")
+    review.add_argument("--base", help="show Python changes against this Git revision, e.g. HEAD or main")
 
     snapshot = sub.add_parser("snapshot", help="save a frozen source review for later queries")
     snapshot.add_argument("project")
@@ -468,24 +472,30 @@ def main(argv: list[str] | None = None, default_command: str | None = None) -> i
             if args.output:
                 from .html_export import write_html
 
+                if not Path(args.output).expanduser().resolve().parent.is_dir():
+                    # Fail before an analysis that can take a minute.
+                    raise ThreadlineError(f"--output folder does not exist: {Path(args.output).expanduser().resolve().parent}")
                 store = SnapshotStore(args.project, source_roots=args.source_root, exclude=args.exclude)
                 store.refresh()
                 if args.base:
                     store.current["changes"] = review_changes(
                         store.root, args.base, args.change_files, store,
                     )
+                _warn_if_empty(store)
                 output = write_html(store, args.output)
                 print(f"Threadline HTML review: {output}\nOpen {output.as_uri()}", flush=True)
                 if not args.no_open:
                     webbrowser.open(output.as_uri())
                 return 0
             server = make_server(
-                args.project, port=args.port, base=args.base,
+                args.project, port=4173 if args.port is None else args.port, base=args.base,
                 source_roots=args.source_root, exclude=args.exclude,
-                change_files=args.change_files,
+                change_files=args.change_files, any_port_if_busy=args.port is None,
             )
+            _warn_if_empty(server.threadline_store)
             url = f"http://127.0.0.1:{server.server_address[1]}/"
-            print(f"Threadline is reviewing {Path(args.project).resolve()}\nOpen {url}", flush=True)
+            print(f"Threadline is reviewing {Path(args.project).resolve()}\nOpen {url}\n"
+                  "Press Ctrl+C to stop.", flush=True)
             if not args.no_open:
                 webbrowser.open(url)
             try:
@@ -520,8 +530,27 @@ def main(argv: list[str] | None = None, default_command: str | None = None) -> i
         )
         return 3 if args.strict_complete and not _analysis(model)["complete"] else 0
     except (ThreadlineError, ValueError, KeyError, TypeError) as exc:
+        if args.command == "review":
+            return _review_error(str(exc), 2)
         _error(args.command, "query_error", str(exc), compact=getattr(args, "compact", False))
         return 2
     except OSError as exc:
+        if args.command == "review":
+            message = f"{exc.strerror}: {exc.filename}" if exc.filename else str(exc.strerror or exc)
+            if exc.errno == errno.EADDRINUSE:
+                message = f"port {args.port} is already in use; choose another with --port"
+            return _review_error(message, 1)
         _error(args.command, "io_error", str(exc), compact=getattr(args, "compact", False))
         return 1
+
+
+def _review_error(message: str, code: int) -> int:
+    """`review` is run by people, so its errors are plain text rather than JSON."""
+    print(f"threadline: error: {message}", file=sys.stderr, flush=True)
+    return code
+
+
+def _warn_if_empty(store: SnapshotStore) -> None:
+    if not store.current["coverage"].get("discovered", 0):
+        print("threadline: warning: no Python files found; check the path, --source-root, and --exclude",
+              file=sys.stderr, flush=True)

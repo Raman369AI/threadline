@@ -204,7 +204,8 @@ async function boundedMethodLines(id, snapshot = model.snapshotId) {
 $('#sidebarToggle').addEventListener('click', () => {
   sidebarCollapsed = !sidebarCollapsed;
   $('.workspace').classList.toggle('sidebar-collapsed', sidebarCollapsed);
-  $('#sidebarToggle').textContent = sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar';
+  const label = sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar';
+  $('#sidebarToggle').setAttribute('aria-label', label); $('#sidebarToggle').title = label;
   $('#sidebarToggle').setAttribute('aria-expanded', String(!sidebarCollapsed));
   announce(sidebarCollapsed ? 'Sidebar hidden.' : 'Sidebar shown.');
 });

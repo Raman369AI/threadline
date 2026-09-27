@@ -1,6 +1,7 @@
 """Serve the Threadline browser from a snapshot store."""
 from __future__ import annotations
 
+import errno
 import json
 import copy
 import secrets
@@ -16,6 +17,7 @@ from .changes import review_changes
 ASSETS = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
           '/workflow.js': ('workflow.js', 'text/javascript'), '/method.js': ('method.js', 'text/javascript'),
           '/review_data.js': ('review_data.js', 'text/javascript'), '/codefirst.js': ('codefirst.js', 'text/javascript'),
+          '/theme.js': ('theme.js', 'text/javascript'),
           '/styles.css': ('styles.css', 'text/css')}
 
 
@@ -47,7 +49,7 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         finally: self.slots.release()
 
 
-def make_server(root, host='127.0.0.1', port=4173, retention=2, base=None, source_roots=None, exclude=None, change_files=None):
+def make_server(root, host='127.0.0.1', port=4173, retention=2, base=None, source_roots=None, exclude=None, change_files=None, any_port_if_busy=False):
     store = SnapshotStore(root, retention=retention, source_roots=source_roots, exclude=exclude)
     store.refresh()
     def enrich(candidate):
@@ -60,6 +62,9 @@ def make_server(root, host='127.0.0.1', port=4173, retention=2, base=None, sourc
     allowed_hosts = set()
 
     class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass  # One line per API request would bury the review URL in the terminal.
+
         def reply(self, code, body, content_type='application/json'):
             if not isinstance(body, bytes):
                 encoded = bytearray()
@@ -165,7 +170,11 @@ def make_server(root, host='127.0.0.1', port=4173, retention=2, base=None, sourc
                 lock.release()
 
     if host != '127.0.0.1': raise ValueError('Threadline must bind to IPv4 loopback')
-    server = BoundedHTTPServer((host, port), Handler)
+    try:
+        server = BoundedHTTPServer((host, port), Handler)
+    except OSError as exc:
+        if not (any_port_if_busy and exc.errno == errno.EADDRINUSE): raise
+        server = BoundedHTTPServer((host, 0), Handler)
     allowed_hosts.update({f'127.0.0.1:{server.server_port}', f'localhost:{server.server_port}'})
     server.threadline_store = store
     return server

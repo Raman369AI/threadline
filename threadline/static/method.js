@@ -20,14 +20,24 @@ function renderPathBar() {
   host.append(back, trail);
 }
 
-function toggleHelp(open) {
+// Instructions: how to read the review, and source coverage, in one panel.
+function showInstructions(section) {
+  const coverage = section === 'coverage';
+  $('#helpGuide').hidden = coverage; $('#coveragePanel').hidden = !coverage;
+  $('#guideTab').setAttribute('aria-pressed', String(!coverage));
+  $('#coverageTab').setAttribute('aria-pressed', String(coverage));
+}
+function toggleHelp(open, section) {
   const panel = $('#helpPanel'), show = open ?? panel.hidden;
+  if (section) showInstructions(section);
   panel.hidden = !show; $('#helpButton').setAttribute('aria-expanded', String(show));
   if (show) panel.focus(); else if (panel.contains(document.activeElement) || document.activeElement === document.body) $('#helpButton').focus();
 }
 
 $('#helpButton').addEventListener('click', () => toggleHelp());
 $('#helpClose').addEventListener('click', () => toggleHelp(false));
+$('#guideTab').addEventListener('click', () => showInstructions('guide'));
+$('#coverageTab').addEventListener('click', () => showInstructions('coverage'));
 document.addEventListener('keydown', event => {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.target.closest?.('input, textarea, select, [contenteditable]')) return;

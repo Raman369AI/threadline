@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Stop reporting a caller's argument as changed when the callee only calls methods on a parameter annotated as an immutable type such as `str`, `int | None`, or `tuple[int, ...]`.
+- Show a change that a called function only *might* make as a dashed chip with its source in the tooltip, instead of as a definite change. The reading guide now explains dashed items.
+- Resolve construction of an imported `@dataclass` or `@total_ordering` class as a direct call instead of *probably*.
+- Rank search results by name: an exact method name first, then name prefixes; project code before tests and lambdas.
+- List methods called on objects the method receives, such as `db.commit()` or `repository.save(order)`, under *Calls*; selecting one highlights its line. These are often a method's real side effects. They are dashed when their target cannot be told from source; library methods on a typed receiver name the library method in the tooltip.
+- Add *Raises* to the method summary when the method raises an exception.
+- Move test modules with a main guard out of *CLI commands* into a collapsed "Test modules you can run" group.
+- Name the selected call-map step above the method ("Selected in the call map: …") and hide that box when it adds nothing; method cards in a module list show their line instead of repeating the file; module-level commands no longer show `<module>`.
+- Explain Coverage call counts in one sentence and fold the static-analysis caveats behind "Limits of reading source without running it".
+- Replace the **Hide sidebar** button with a ☰ menu button at the left of the header, and move *Source only · not executed* to a button in the bottom-right corner that opens the reading guide above it. The guide now fits narrow windows.
+- Make the code pane resizable: drag the divider between the code and the side pane, or use the arrow keys on it; double-click or Enter resets it, and the width is remembered.
+- Rename the corner button **Instructions** and move **Coverage** into it as a second section, removing the header button. The analysis-issues badge opens that section directly.
+- Add dark mode. The review follows the system setting, and **Theme** in the header switches between System, Light, and Dark; the choice is remembered in that browser, including in a saved HTML review. Every color is now a named token, so light mode is unchanged, and the accessibility checks run axe in both themes.
+- `threadline review`: print errors as plain text instead of JSON, name the bad `--base` revision, check the `--output` folder before analysis, warn when no Python files are found, stop logging every request, use a free port when 4173 is busy (unless `--port` is given), and describe every option in `--help`.
+
 ## 0.2.0b4 — 2026-09-25
 
 - Export the interactive viewer and retained source as one standalone HTML file with `threadline review PROJECT --output review.html`; browse without a server or network connection.

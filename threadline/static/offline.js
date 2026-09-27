@@ -52,7 +52,7 @@ window.threadlineOffline = (() => {
     if (path === '/api/summary') return saved.summary;
     if (path === '/api/starts') {
       let rows = saved.catalog.filter(row => matches(`${row.label} ${row.name} ${row.file}`));
-      const categories = ['http', 'commands', 'tasks', 'methods'];
+      const categories = ['http', 'commands', 'tasks', 'testCommands', 'methods'];
       const counts = Object.fromEntries(categories.map(kind => [kind, rows.filter(row => row.category === kind).length]));
       const httpMethods = [...new Set(rows.flatMap(row => row.httpMethods || []))].sort();
       if (params.category) {
@@ -62,7 +62,13 @@ window.threadlineOffline = (() => {
       }
       if (terms.length) {
         rows = [...new Map([...rows].reverse().map(row => [row.id, row])).values()];
-        rows.sort((a,b) => Number(a.name.toLowerCase() !== String(params.q).trim().toLowerCase()) - Number(b.name.toLowerCase() !== String(params.q).trim().toLowerCase()) || Number(a.name.split('.').at(-1).startsWith('__')) - Number(b.name.split('.').at(-1).startsWith('__')) || compare(a.label.toLowerCase(),b.label.toLowerCase()) || compare(a.file,b.file));
+        // Mirrors service._search_rank.
+        const needle = String(params.q).trim().toLowerCase();
+        const rank = row => { const name = row.name.toLowerCase(), last = name.split('.').at(-1);
+          return [[name, last, row.label.toLowerCase()].includes(needle) ? 0 : last.startsWith(needle) ? 1 : 2,
+            Number(isTestFile(row.file)), Number(name.includes('<lambda')), Number(last.startsWith('__'))]; };
+        const ranked = new Map(rows.map(row => [row, rank(row)]));
+        rows.sort((a,b) => ranked.get(a).reduce((order, value, i) => order || value - ranked.get(b)[i], 0) || compare(a.label.toLowerCase(),b.label.toLowerCase()) || compare(a.file,b.file));
         return {snapshotId, counts, httpMethods, results:paged(rows)};
       }
       return {snapshotId, counts, httpMethods, groups:Object.fromEntries(categories.map(kind => [kind,paged(rows.filter(row => row.category === kind))]))};

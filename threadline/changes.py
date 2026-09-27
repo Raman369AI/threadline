@@ -22,7 +22,10 @@ HUNK = re.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@')
 
 def review_changes(root: str | Path, base: str = 'HEAD', files: list[str] | None = None, store: SnapshotStore | None = None) -> dict[str, Any]:
     root = Path(root).resolve()
-    base_revision = _git(root, ['rev-parse', '--verify', '--end-of-options', base + '^{commit}'])
+    try:
+        base_revision = _git(root, ['rev-parse', '--verify', '--end-of-options', base + '^{commit}'])
+    except ThreadlineError as exc:
+        raise ThreadlineError(f'--base {base!r} is not a commit in this Git repository ({exc})') from exc
     statuses = _statuses(root, base_revision)
     if files is not None:
         allowed = {Path(name).as_posix() for name in files}

@@ -46,19 +46,28 @@ large codebases.
 
 | Part | What it shows |
 | --- | --- |
-| **Summary** | *In*, *Calls*, *Changes*, and *Returns*. Select an item to highlight it in the code or open the call. |
+| **Summary** | *In*, *Calls*, *Changes*, *Returns*, and *Raises*. *Calls* includes methods called on objects passed in, such as `db.commit` or `repository.save`. Select an item to highlight it in the code or open the call. Dashed items are uncertain. |
 | **Code** | Only the selected method. Select a name to highlight every use; underlined calls open beside the code. |
 | **Beside the code** | The opened call, test, or caller with its calling line marked, then **Tests**, **Callers**, and **Models** as source. |
 | **Call map** | Project functions the method reaches, each with the line that calls it and tags such as *if*, *later*, or *probably*. |
 
 **Open →** moves into a method; **Back** returns with your highlight and side code intact.
 
+| Control | What it does |
+| --- | --- |
+| **☰** (top left) | Hides or shows the sidebar to give the code the full width. |
+| **Divider** between the code and the side pane | Drag to resize, or focus it and use the arrow keys; double-click or Enter resets it. |
+| **Instructions** (bottom right) | How to read the review, keyboard shortcuts, and source **Coverage**. |
+| **Theme** (top right) | Follows the system light or dark setting, or switch to Light or Dark. |
+
+The width and theme are remembered in your browser.
+
 ## Choose where to start
 
 | Page | How to use it |
 | --- | --- |
 | **Endpoints** | Pick an HTTP verb tab, such as GET or POST, then an endpoint. |
-| **Commands & tasks** | Select a CLI command or background task. |
+| **Commands & tasks** | Select a CLI command or background task. Test modules you can run with `python -m` are folded into their own group. |
 | **Modules & methods** | Pick a module, filter its methods, then select one. |
 
 Search is available across all three pages. Each link points to source evidence. Unresolved sources and effects remain
@@ -89,7 +98,7 @@ tagged *probably* (a likely target), is a *library* call, or is tagged *can't te
 output. Name highlighting matches names within a method; it is not a runtime value trace. Common injected,
 inherited, and constructed receivers can have possible source candidates. Dynamic
 dispatch can remain unresolved; the view does not establish what happened at runtime.
-The header shows analysis problems, and **Coverage** lists parse failures and unmodeled
+The header shows analysis problems, and **Instructions → Coverage** (bottom-right corner) lists parse failures and unmodeled
 syntax.
 
 This is a **beta**. Linux and macOS are tested with Python 3.12–3.14; Windows is experimental. Human reviewer sessions remain pending before a stable release.

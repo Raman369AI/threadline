@@ -83,9 +83,14 @@ def main():
 
             def audit(name):
                 driver.execute_script(axe.read_text())
-                result=js("axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','wcag22aa','best-practice']}})")
-                audits.append({'state':name,'violations':result['violations'],'incomplete':result['incomplete']})
-                check('axe_'+name,not result['violations'])
+                # Each state is checked in both themes; contrast is the check most likely to differ.
+                for theme in ('light','dark'):
+                    driver.execute_script("document.documentElement.dataset.theme=arguments[0]",theme)
+                    result=js("axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','wcag22aa','best-practice']}})")
+                    state=name if theme=='light' else name+'_dark'
+                    audits.append({'state':state,'violations':result['violations'],'incomplete':result['incomplete']})
+                    check('axe_'+state,not result['violations'])
+                driver.execute_script("delete document.documentElement.dataset.theme")
 
             audit('chooser')
             tab_to('#verb-All');key(Keys.ARROW_RIGHT)
@@ -162,16 +167,24 @@ def main():
             key(Keys.ESCAPE)
             check('escape_then_closes_side_code',js("document.querySelector('#cfBeside').hidden"))
             tab_to('#sidebarToggle');key(Keys.ENTER)
-            check('keyboard_sidebar_collapse',js("document.querySelector('.workspace').classList.contains('sidebar-collapsed') && document.querySelector('#sidebarToggle').textContent.includes('Show sidebar')"))
+            check('keyboard_sidebar_collapse',js("document.querySelector('.workspace').classList.contains('sidebar-collapsed') && document.querySelector('#sidebarToggle').getAttribute('aria-label')==='Show sidebar'"))
             audit('sidebar_collapsed')
             tab_to('#sidebarToggle');key(Keys.ENTER)
-            # A nonmodal coverage region must accept focus and return it on Escape.
-            tab_to('#coverageButton');key(Keys.ENTER)
-            wait.until(lambda d:not d.find_element(By.ID,'coveragePanel').get_attribute('hidden'))
-            check('coverage_focus',js("document.querySelector('#coveragePanel').contains(document.activeElement)"))
+            # The code pane divider is a keyboard-operable separator.
+            tab_to('#cfSplitter');key(Keys.ARROW_LEFT)
+            check('keyboard_resize_code_pane',js("document.querySelector('#cfSplitter').getAttribute('aria-valuenow')==='55'"))
+            key(Keys.ENTER)
+            check('keyboard_reset_code_pane',js("document.querySelector('#cfSplitter').getAttribute('aria-valuenow')==='60'"))
+            # The nonmodal instructions region takes focus, shows coverage, and returns focus on Escape.
+            tab_to('#helpButton');key(Keys.ENTER)
+            wait.until(lambda d:not d.find_element(By.ID,'helpPanel').get_attribute('hidden'))
+            check('instructions_focus',js("document.querySelector('#helpPanel').contains(document.activeElement)"))
+            audit('instructions')
+            tab_to('#coverageTab');key(Keys.ENTER)
+            check('coverage_in_instructions',js("!document.querySelector('#coveragePanel').hidden && document.querySelector('#helpGuide').hidden && document.querySelector('#coveragePanel').textContent.includes('Python files parsed')"))
             audit('coverage')
             key(Keys.ESCAPE)
-            check('coverage_focus_return',js("document.activeElement.id==='coverageButton' && document.querySelector('#coveragePanel').hidden"))
+            check('instructions_focus_return',js("document.activeElement.id==='helpButton' && document.querySelector('#helpPanel').hidden"))
             # A 720 CSS-pixel viewport models the reflow available at 200% desktop zoom.
             for width in (720,390):
                 driver.set_window_size(width,900)

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0b5 — 2026-09-26
 
 - Infer a factory's result without a return annotation when every return constructs a class (`return Repo()`, `return build()`), and resolve a name assigned once from a function (`alias = clean`) as a probable alias.
 - Name the Python that parsed a file in syntax errors, and suggest running Threadline with a newer Python when the file may use newer syntax.

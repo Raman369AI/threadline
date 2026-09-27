@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Render a method once when it is opened; building its call map selected it again and redrew the view, briefly showing "Loading code…" and fetching it twice.
 - Resolve names bound at module level (`FEE = 2`, including inside top-level `if`/`try` blocks) as module globals with their value, instead of unknown names with an "unbound read" gap.
 - Stop reporting an argument as possibly changed when the callee only calls read-only methods on it (`count`, `index`, `get`, `keys`, `startswith`, …).
 - Record `self.items.append(item)` and similar calls as a change to `self.items`; the summary shows `self` and `cls` changes with their attribute.

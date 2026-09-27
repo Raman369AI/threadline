@@ -213,7 +213,8 @@ async function chooseScope(id, opts={}) {
   const scope = model.scopes[id];
   $('#methodName').textContent = scope.kind === 'module' ? scope.module + ' (module body)' : scope.qualified;
   renderPathBar(); navigation();
-  await renderCodeFirst(id);
+  // Building the call map selects the entry method again; keep the view already drawn for it.
+  if (codeFirst.rendered !== captured.snapshotId + '|' + id) await renderCodeFirst(id);
   if(request!==selectionRequest || captured!==model)return false;
   if (!opts.keepScroll) $('.review').scrollTop = 0;
   history.replaceState(null, '', '#' + encodeURIComponent(id));

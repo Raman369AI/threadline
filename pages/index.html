@@ -3,8 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Turn a public Python repository into an interactive code review. Runs in your browser, with a standalone HTML download.">
-  <title>Threadline · Review a GitHub repository</title>
+  <meta name="description" content="Free, forever. Turn any public Python repository into an interactive code review, built for developers and vibe coders who need to understand AI-written code. Runs in your browser. More languages coming.">
+  <meta name="google-site-verification" content="fdUCcZdOev7EFplEiYVYRD7wWbI3mBVYGmReyXKoGk8" />
+  <title>Threadline · Free interactive code review for Python repositories</title>
+  <link rel="canonical" href="https://raman369ai.github.io/threadline/">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#18634f">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Threadline">
+  <meta property="og:url" content="https://raman369ai.github.io/threadline/">
+  <meta property="og:title" content="Threadline · Follow the code. Understand the flow.">
+  <meta property="og:description" content="Free, forever. Paste a public GitHub repository and see its endpoints, call flows, effects, and tests beside the source. Built for developers and vibe coders. Python today, more languages coming.">
+  <meta property="og:image" content="https://raman369ai.github.io/threadline/social-preview.png">
+  <meta property="og:image:width" content="1360">
+  <meta property="og:image:height" content="797">
+  <meta property="og:image:alt" content="A Threadline review showing a method, its calls, and the original source">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Threadline · Free interactive code review">
+  <meta name="twitter:description" content="Understand any Python repository, including the code your AI wrote. Free, runs in your browser. More languages coming.">
+  <meta name="twitter:image" content="https://raman369ai.github.io/threadline/social-preview.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Threadline",
+    "url": "https://raman369ai.github.io/threadline/",
+    "description": "Free interactive code review for Python repositories. Explore endpoints, commands, and methods, follow calls, and keep the original source beside you. Built for developers and vibe coders; more languages coming.",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Web browser, Windows, macOS, Linux",
+    "isAccessibleForFree": true,
+    "image": "https://raman369ai.github.io/threadline/social-preview.png",
+    "license": "https://github.com/Raman369AI/threadline/blob/main/LICENSE",
+    "sameAs": ["https://github.com/Raman369AI/threadline", "https://pypi.org/project/threadline-review/"]
+  }
+  </script>
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="app.mjs"></script>
 </head>
@@ -15,7 +47,7 @@
   </header>
   <main>
     <section class="intro" aria-labelledby="title">
-      <p class="eyebrow">PYTHON CODE REVIEW <span>Browser preview</span></p>
+      <p class="eyebrow">FREE PYTHON CODE REVIEW <span>Browser preview · More languages coming</span></p>
       <h1 id="title">Follow the code.<br><span>Understand the flow.</span></h1>
       <p class="lede">Turn a public GitHub repository into an interactive review. Explore methods, follow calls, and keep the original source beside you.</p>
     </section>
@@ -54,6 +86,15 @@
       <article><span class="step">01 / EXPLORE</span><h2>Find your starting point</h2><p>Browse endpoints, commands, and methods. Follow the functions they call.</p></article>
       <article><span class="step">02 / UNDERSTAND</span><h2>Keep the evidence in view</h2><p>Read inputs, effects, returns, tests, and callers alongside the original code.</p></article>
       <article><span class="step">03 / KEEP</span><h2>One file. The whole review.</h2><p>Download an interactive HTML snapshot to reopen or share.</p></article>
+    </section>
+    <section class="faq" aria-labelledby="faq-title">
+      <h2 id="faq-title">Questions</h2>
+      <details><summary>What is Threadline?</summary><p>Threadline is a free, open-source code review tool. It maps a project's endpoints, CLI commands, and methods, then shows each method's calls, inputs, effects, returns, tests, and callers next to the original source.</p></details>
+      <details><summary>Is it really free?</summary><p>Yes, free forever. No account, no sign-up, and no usage limits beyond what your browser can handle.</p></details>
+      <details><summary>Who is it for?</summary><p>Developers reviewing unfamiliar code, and vibe coders who built something with an AI assistant and want to understand what it actually does before they ship it.</p></details>
+      <details><summary>Which languages are supported?</summary><p>Python today, including web apps with HTML or Jinja templates. More languages are on the way.</p></details>
+      <details><summary>Does my code leave my browser?</summary><p>No. Files are fetched directly from GitHub and analysed on your device. Nothing is uploaded to a separate analysis service, and repository code is read as source, never executed.</p></details>
+      <details><summary>Can I use it locally or on private code?</summary><p>Yes. Install the <a href="https://pypi.org/project/threadline-review/">threadline-review</a> package and run the <a href="https://github.com/Raman369AI/threadline#install-and-open-a-repository">local CLI</a>. It also reviews changes between Git revisions, which the browser version does not.</p></details>
     </section>
     <footer><p>Analysis runs on your device. Source is fetched directly from GitHub.</p><p>Public repositories · Up to 1,500 selected files / 16 MiB · No Git comparisons</p><p>First use downloads a Python runtime. Large projects may work better with the <a href="https://github.com/Raman369AI/threadline#install-and-open-a-repository">local CLI</a>. <a href="THIRD_PARTY.txt">Open-source notices</a>.</p></footer>
     <noscript><p class="noscript">JavaScript is required to generate a review in your browser.</p></noscript>

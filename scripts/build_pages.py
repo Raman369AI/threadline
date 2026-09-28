@@ -30,7 +30,7 @@ LICENSE_URLS = {
 
 def build(output: Path, runtime_cache: Path) -> None:
     output.mkdir(parents=True, exist_ok=True)
-    for name in ('index.html', 'styles.css', 'app.mjs', 'github.mjs', 'worker.js'):
+    for name in ('index.html', 'styles.css', 'app.mjs', 'github.mjs', 'worker.js', 'sitemap.xml', 'social-preview.png'):
         shutil.copyfile(ROOT / 'pages' / name, output / name)
     shutil.copyfile(ROOT / 'LICENSE', output / 'LICENSE')
     archive = io.BytesIO()

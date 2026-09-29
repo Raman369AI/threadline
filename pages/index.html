@@ -34,7 +34,7 @@
     "isAccessibleForFree": true,
     "image": "https://raman369ai.github.io/threadline/social-preview.png",
     "license": "https://github.com/Raman369AI/threadline/blob/main/LICENSE",
-    "sameAs": ["https://github.com/Raman369AI/threadline", "https://pypi.org/project/threadline-review/"]
+    "sameAs": ["https://github.com/Raman369AI/threadline", "https://pypi.org/project/threadline-review/", "https://marketplace.visualstudio.com/items?itemName=Raman369AI.threadline-review"]
   }
   </script>
   <link rel="stylesheet" href="styles.css">
@@ -80,7 +80,14 @@
       </div>
       <p id="coverage-note" class="hint"></p>
       <iframe id="preview" title="Interactive Threadline code review" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
-      <p class="hint">The download is self-contained and works offline. This preview stays in your browser; it does not create a public review link.</p>
+      <p class="hint">The download is self-contained and works offline. This preview stays in your browser; nothing is uploaded.</p>
+      <div class="share">
+        <label for="review-link">Link to this review</label>
+        <div class="input-row"><input id="review-link" readonly spellcheck="false"><button class="secondary" type="button" data-copy="review-link">Copy link</button></div>
+        <label for="badge-markdown">README badge</label>
+        <div class="input-row"><input id="badge-markdown" readonly spellcheck="false"><button class="secondary" type="button" data-copy="badge-markdown">Copy Markdown</button></div>
+        <p class="hint">Opening the link generates the same review in the visitor's browser from the current source on GitHub.</p>
+      </div>
     </section>
     <section class="features" aria-label="How it works">
       <article><span class="step">01 / EXPLORE</span><h2>Find your starting point</h2><p>Browse endpoints, commands, and methods. Follow the functions they call.</p></article>
@@ -95,8 +102,9 @@
       <details><summary>Which languages are supported?</summary><p>Python today, including web apps with HTML or Jinja templates. More languages are on the way.</p></details>
       <details><summary>Does my code leave my browser?</summary><p>No. Files are fetched directly from GitHub and analysed on your device. Nothing is uploaded to a separate analysis service, and repository code is read as source, never executed.</p></details>
       <details><summary>Can I use it locally or on private code?</summary><p>Yes. Install the <a href="https://pypi.org/project/threadline-review/">threadline-review</a> package and run the <a href="https://github.com/Raman369AI/threadline#install-and-open-a-repository">local CLI</a>. It also reviews changes between Git revisions, which the browser version does not.</p></details>
+      <details><summary>Is there a VS Code extension?</summary><p>Yes. Install <a href="https://marketplace.visualstudio.com/items?itemName=Raman369AI.threadline-review">Threadline — Python Review</a> from the Visual Studio Marketplace to open the function at your cursor, workspace methods, or Git changes in an editor panel. It requires Python 3.12 or later.</p></details>
     </section>
-    <footer><p>Analysis runs on your device. Source is fetched directly from GitHub.</p><p>Public repositories · Up to 1,500 selected files / 16 MiB · No Git comparisons</p><p>First use downloads a Python runtime. Large projects may work better with the <a href="https://github.com/Raman369AI/threadline#install-and-open-a-repository">local CLI</a>. <a href="THIRD_PARTY.txt">Open-source notices</a>.</p></footer>
+    <footer><p>Analysis runs on your device. Source is fetched directly from GitHub.</p><p>Public repositories · Up to 1,500 selected files / 16 MiB · No Git comparisons</p><p>First use downloads a Python runtime. Large projects may work better with the <a href="https://github.com/Raman369AI/threadline#install-and-open-a-repository">local CLI</a> or the <a href="https://marketplace.visualstudio.com/items?itemName=Raman369AI.threadline-review">VS Code extension</a>. <a href="THIRD_PARTY.txt">Open-source notices</a>.</p></footer>
     <noscript><p class="noscript">JavaScript is required to generate a review in your browser.</p></noscript>
   </main>
 </body>

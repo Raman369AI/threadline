@@ -1,8 +1,10 @@
 # Threadline — Python code review and data flow visualization
 
+[![Explore in Threadline](https://img.shields.io/badge/Explore_in-Threadline-18634f)](https://raman369ai.github.io/threadline/?repo=Raman369AI/threadline&folder=threadline)
+
 **Review Python methods as code: what comes in, what it calls and changes, what it returns — with tests, callers, and models beside it.**
 
-[PyPI: threadline-review](https://pypi.org/project/threadline-review/) · [Get started](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md) · [Documentation](https://github.com/Raman369AI/threadline/blob/main/docs/README.md) · [GitHub](https://github.com/Raman369AI/threadline) · [Report a bug](https://github.com/Raman369AI/threadline/issues)
+[PyPI: threadline-review](https://pypi.org/project/threadline-review/) · [VS Code extension](https://marketplace.visualstudio.com/items?itemName=Raman369AI.threadline-review) · [Get started](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md) · [Documentation](https://github.com/Raman369AI/threadline/blob/main/docs/README.md) · [GitHub](https://github.com/Raman369AI/threadline) · [Report a bug](https://github.com/Raman369AI/threadline/issues)
 
 Threadline opens your Python repository in a local browser, or writes it to one
 HTML file. Choose an endpoint, command, or method to read its code under a
@@ -50,6 +52,17 @@ HTML download. It uses the same analyzer through Pyodide, without a Python serve
 See the [setup guide](https://github.com/Raman369AI/threadline/blob/main/docs/GITHUB_PAGES.md)
 to run it locally or deploy it with the included Pages workflow.
 This version supports a single source snapshot, without Git comparisons.
+Links such as `?repo=owner/name` start a review directly; after a review, copy the
+link or a README badge for your repository ([details](https://github.com/Raman369AI/threadline/blob/main/docs/GITHUB_PAGES.md#review-links-and-readme-badge)).
+
+### Review inside VS Code
+
+Install [Threadline — Python Review](https://marketplace.visualstudio.com/items?itemName=Raman369AI.threadline-review)
+from the Visual Studio Marketplace, or run `code --install-extension Raman369AI.threadline-review`.
+The extension preview opens the function at your cursor, workspace methods, or Git
+changes in an editor panel. It includes source jumps, stale-source notices, refresh,
+and standalone HTML export. It requires VS Code 1.95+ and Python 3.12+. See the
+[extension guide](https://github.com/Raman369AI/threadline/blob/main/vscode/README.md).
 
 ## Read a method
 

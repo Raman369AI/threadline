@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash, webcrypto} from 'node:crypto';
-import {parseRepository, sourceFolder, selectFiles, fetchRepository, LIMITS} from '../pages/github.mjs';
+import {parseRepository, sourceFolder, selectFiles, fetchRepository, LIMITS, reviewLink, linkRequest, badgeMarkdown} from '../pages/github.mjs';
 
 globalThis.crypto ??= webcrypto;
 const sha = 'a'.repeat(40), treeSha = 'b'.repeat(40);
@@ -14,6 +14,20 @@ test('accepts public repo URLs and .git; rejects other hosts and ambiguous branc
   for (const url of ['http://github.com/o/r','https://github.com.evil.test/o/r','https://user@github.com/o/r','https://github.com/o/r/tree/main','https://github.com/o/r%2fx','https://github.com/o/.git']) {
     assert.throws(() => parseRepository(url));
   }
+});
+test('review links round-trip requests and reject unsafe parameters', () => {
+  const base = 'https://raman369ai.github.io/threadline/?old=1#top';
+  const link = reviewLink({owner:'owner', repo:'project', ref:'release/1.0', folder:'src/pkg'}, base);
+  assert.equal(link, 'https://raman369ai.github.io/threadline/?repo=owner%2Fproject&ref=release%2F1.0&folder=src%2Fpkg');
+  assert.deepEqual(linkRequest(new URL(link).search), {owner:'owner', repo:'project', ref:'release/1.0', folder:'src/pkg'});
+  assert.deepEqual(linkRequest('?repo=https://github.com/o/r'), {owner:'o', repo:'r', ref:'', folder:''});
+  assert.equal(reviewLink({owner:'o', repo:'r'}, base), 'https://raman369ai.github.io/threadline/?repo=o%2Fr');
+  assert.equal(linkRequest(''), null);
+  assert.equal(linkRequest('?repo='), null);
+  for (const search of ['?repo=o','?repo=o/r/tree/main','?repo=https://evil.test/o/r','?repo=o/r&folder=../x','?repo=o/r&ref=a%0Ab',`?repo=o/r&ref=${'a'.repeat(256)}`]) {
+    assert.throws(() => linkRequest(search));
+  }
+  assert.equal(badgeMarkdown(link), `[![Explore in Threadline](https://img.shields.io/badge/Explore_in-Threadline-18634f)](${link})`);
 });
 test('source folders cannot escape the virtual repository', () => {
   assert.equal(sourceFolder(' src/pkg/ '), 'src/pkg');

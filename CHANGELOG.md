@@ -2,10 +2,19 @@
 
 ## Unreleased
 
+- Add a desktop VS Code extension preview with function-at-cursor, workspace, and
+  Git-change review; source navigation, stale-snapshot notices, refresh, and HTML
+  export. Bundle the analyzer and run it through an isolated Python stdio bridge.
+  Source jumps preserve historical evidence when the current file has changed.
+  Published on the Visual Studio Marketplace as `Raman369AI.threadline-review`.
+- Share read-only review queries between the local server and VS Code transport.
 - Add a GitHub Pages generator: paste a public repository URL, analyze its Python
   source in a browser worker, preview the review, and download standalone HTML.
   Includes optional branch and source-folder selection, pinned source verification,
   cancellation, bounded downloads, and a Pages deployment workflow.
+- Add review links to the GitHub Pages generator: `?repo=owner/name&ref=…&folder=…`
+  fills the form and starts the review in the visitor's browser. After a review,
+  copy the link or an "Explore in Threadline" README badge.
 - Allow saved HTML reviews to navigate inside a sandboxed browser preview when
   the browser restricts changes to its URL.
 

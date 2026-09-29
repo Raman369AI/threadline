@@ -9,7 +9,9 @@ function scopeName(id) { return model.scopes[id]?.qualified || id; }
 const certaintyLabels = {supported:'Calls', possible:'Probably calls', external:'Library', unknown:"Can't tell"};
 function certaintyLabel(status) { return certaintyLabels[status] || status; }
 function announce(message) { $('#announcement').textContent = message; }
+function reviewURL() { return new URL(window.threadlineHost?.location || location.href); }
 function replaceReviewURL(url) {
+  if (window.threadlineHost) { window.threadlineHost.location = new URL(url, reviewURL()).href; return; }
   try { history.replaceState(null, '', url); }
   catch (error) {
     // A downloaded review can also run in a sandboxed blob preview. Browsers
@@ -35,6 +37,7 @@ function reportError(error, retry, key) {
 
 let sessionToken = '', navigationRequest = 0, selectionRequest = 0;
 async function api(path, params={}, options={}) {
+  if (window.threadlineHost) return window.threadlineHost.request(path, params, options);
   if (window.threadlineOffline) return window.threadlineOffline(path, params);
   const response = await fetch(path + '?' + new URLSearchParams(params), options);
   const data = await response.json();
@@ -121,7 +124,7 @@ async function modulePicker(host, initialFile=null) {
   }
   function selectModule(file) {
     selectedFile=file;filter.value='';clearTimeout(timer);
-    const url=new URL(location.href);if(file)url.searchParams.set('module',file);else url.searchParams.delete('module');
+    const url=reviewURL();if(file)url.searchParams.set('module',file);else url.searchParams.delete('module');
     replaceReviewURL(url);loadModules(0,true);
   }
   filter.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>loadModules(),150);});
@@ -158,11 +161,11 @@ async function showStartPage(page=null) {
   try {
     const result=await api('/api/starts',{snapshot:captured.snapshotId,limit:20});
     if(captured!==model || request!==startRequest)return;
-    const requested=page || new URLSearchParams(location.search).get('page');
+    const requested=page || reviewURL().searchParams.get('page');
     const available={endpoints:result.counts.http>0,commands:result.counts.commands+result.counts.tasks>0,methods:true};
     $('#endpointsTab').hidden=!available.endpoints;$('#commandsTab').hidden=!available.commands;
     catalogPage=Object.hasOwn(catalogTitles,requested)&&available[requested]?requested:result.counts.http?'endpoints':result.counts.commands+result.counts.tasks?'commands':'methods';
-    const url=new URL(location.href);url.hash='';url.searchParams.set('page',catalogPage);if(page || catalogPage!=='methods')url.searchParams.delete('module');replaceReviewURL(url);
+    const url=reviewURL();url.hash='';url.searchParams.set('page',catalogPage);if(page || catalogPage!=='methods')url.searchParams.delete('module');replaceReviewURL(url);
     setWorkflowMode('starts');
     $('#startProject').textContent=model.project+' · '+model.coverage.files+' Python files';
     host.replaceChildren();host.classList.toggle('single-page',catalogPage!=='commands');
@@ -173,7 +176,7 @@ async function showStartPage(page=null) {
       const content=el('div');
       if(category==='http' && result.counts.http)endpointTabs(section,content,result.httpMethods);
       section.append(content);host.append(section);
-      if(category==='methods')await modulePicker(content,new URLSearchParams(location.search).get('module'));
+      if(category==='methods')await modulePicker(content,reviewURL().searchParams.get('module'));
       else await loadStartGroup(category,content);
       if(captured!==model || request!==startRequest)return;
     }
@@ -434,7 +437,7 @@ async function loadDiagnostics(host,category,cursor=0) {
 async function load(refresh=false) {
   const b=$('#refreshButton'); b.disabled=true;b.textContent=refresh?'Reading source…':'Indexing…';
   try {
-    const requestedSnapshot=new URLSearchParams(location.search).get('snapshot');
+    const requestedSnapshot=reviewURL().searchParams.get('snapshot');
     if(!sessionToken)sessionToken=(await api('/api/session')).token;
     const summary=refresh?await api('/api/reindex',{}, {method:'POST',headers:{'X-Threadline-Token':sessionToken}}):await api('/api/summary', requestedSnapshot?{snapshot:requestedSnapshot}:{});
     const [schemaMajor,schemaMinor]=String(summary.schemaVersion||'').split('.').map(Number);
@@ -445,10 +448,10 @@ async function load(refresh=false) {
     model={...summary,scopes:{},files:{},generatedWorkflows:{}};
     ++selectionRequest;
     for(const scope of summary.entrypoints.items)model.scopes[scope.id]=scope;
-    if(refresh && requestedSnapshot) replaceReviewURL(location.pathname+location.hash);
+    if(refresh && requestedSnapshot) replaceReviewURL(reviewURL().pathname+reviewURL().hash);
     $('#projectName').textContent=model.project;
     analysisStatus();coverage();renderChanges();
-    const returnSnapshot=new URLSearchParams(location.search).get('returnSnapshot'), notice=$('#baselineNotice');
+    const returnSnapshot=reviewURL().searchParams.get('returnSnapshot'), notice=$('#baselineNotice');
     notice.hidden=!returnSnapshot || refresh;
     notice.replaceChildren();
     if(!notice.hidden) {
@@ -456,11 +459,12 @@ async function load(refresh=false) {
       link.href='?'+new URLSearchParams({snapshot:returnSnapshot});
       notice.append(el('strong','','Baseline source · '),link);
     }
-    const preferred=(refresh && workflowState.mode!=='starts' ? state.scope : null) || decodeURIComponent(location.hash.slice(1));
+    const preferred=(refresh && workflowState.mode!=='starts' ? state.scope : null) || decodeURIComponent(reviewURL().hash.slice(1));
     if(preferred) {
       if(await chooseScope(preferred))await initializeWorkflows(refresh);
       else await showStartPage();
     } else await showStartPage();
+    window.threadlineHost?.ready({snapshot:model.snapshotId, scope:state.scope});
     announce(refresh?'Source refreshed. Flow and source refer to the same snapshot.':'Repository ready.');
   }catch(error){
     const message=error.message.startsWith('This review server')?error.message:'Unable to load the source index: '+error.message;
@@ -475,7 +479,7 @@ document.addEventListener('keydown',event=>{if(event.key==='/' && !['INPUT','TEX
 window.addEventListener('hashchange',async()=>{
   if(!model) return;
   try {
-    const id=decodeURIComponent(location.hash.slice(1));
+    const id=decodeURIComponent(reviewURL().hash.slice(1));
     if(!id)await showStartPage();
     else if(id!==state.scope)await startReview(id);
   } catch(error) {reportError(error,null,'selection');}

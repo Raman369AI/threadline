@@ -1,0 +1,15 @@
+**
+!package.json
+!README.md
+!LICENSE
+!media/icon.png
+!dist/extension.js
+!dist/client.js
+!build/python/runner.py
+!build/python/threadline/*.py
+!build/python/threadline/static/*.js
+!build/python/threadline/static/*.html
+!build/python/threadline/static/*.css
+!build/media/*.js
+!build/media/*.html
+!build/media/*.css

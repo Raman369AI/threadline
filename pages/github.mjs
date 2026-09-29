@@ -24,6 +24,28 @@ export function sourceFolder(value) {
   return folder;
 }
 
+// Review links carry only the request; each visitor's browser fetches and analyzes the source again.
+export function reviewLink({owner, repo, ref = '', folder = ''}, base) {
+  const url = new URL(base);
+  url.search = ''; url.hash = '';
+  url.searchParams.set('repo', `${owner}/${repo}`);
+  if (ref) url.searchParams.set('ref', ref);
+  if (folder) url.searchParams.set('folder', folder);
+  return url.href;
+}
+
+export function linkRequest(search) {
+  const params = new URLSearchParams(search), value = params.get('repo')?.trim();
+  if (!value) return null;
+  const ref = (params.get('ref') || '').trim();
+  if (ref.length > 255 || /[\x00-\x1f\x7f]/.test(ref)) throw new Error('The link has an invalid branch, tag, or commit.');
+  return {...parseRepository(value.includes('://') ? value : `https://github.com/${value}`), ref, folder:sourceFolder(params.get('folder') || '')};
+}
+
+export function badgeMarkdown(link) {
+  return `[![Explore in Threadline](https://img.shields.io/badge/Explore_in-Threadline-18634f)](${link})`;
+}
+
 function safePath(path) {
   return typeof path === 'string' && path.length > 0 && !/[\\\x00-\x1f\x7f]/.test(path) &&
     path.split('/').every(part => part && part !== '.' && part !== '..');

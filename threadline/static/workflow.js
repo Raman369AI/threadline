@@ -12,7 +12,7 @@ async function initializeWorkflows(refresh=false) {
   workflowState.initialized=true;
   setWorkflowMode('workflow');
   if(firstLoad && workflowState.stage) await selectWorkflowStage(workflowState.stage);
-  if(!refresh && firstLoad && new URLSearchParams(location.search).get('trace')==='1') showSelectedWorkflow();
+  if(!refresh && firstLoad && reviewURL().searchParams.get('trace')==='1') showSelectedWorkflow();
 }
 function setWorkflowMode(mode) {
   if(mode==='changes' && !model.changes?.baseSnapshotId) mode='starts';

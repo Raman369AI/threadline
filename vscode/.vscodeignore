@@ -2,6 +2,7 @@
 !package.json
 !README.md
 !LICENSE
+!media/icon.png
 !dist/extension.js
 !dist/client.js
 !build/python/runner.py

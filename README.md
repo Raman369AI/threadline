@@ -4,7 +4,7 @@
 
 **Review Python methods as code: what comes in, what it calls and changes, what it returns — with tests, callers, and models beside it.**
 
-[PyPI: threadline-review](https://pypi.org/project/threadline-review/) · [Get started](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md) · [Documentation](https://github.com/Raman369AI/threadline/blob/main/docs/README.md) · [GitHub](https://github.com/Raman369AI/threadline) · [Report a bug](https://github.com/Raman369AI/threadline/issues)
+[PyPI: threadline-review](https://pypi.org/project/threadline-review/) · [VS Code extension](https://marketplace.visualstudio.com/items?itemName=Raman369AI.threadline-review) · [Get started](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md) · [Documentation](https://github.com/Raman369AI/threadline/blob/main/docs/README.md) · [GitHub](https://github.com/Raman369AI/threadline) · [Report a bug](https://github.com/Raman369AI/threadline/issues)
 
 Threadline opens your Python repository in a local browser, or writes it to one
 HTML file. Choose an endpoint, command, or method to read its code under a
@@ -57,11 +57,12 @@ link or a README badge for your repository ([details](https://github.com/Raman36
 
 ### Review inside VS Code
 
-The [VS Code extension preview](https://github.com/Raman369AI/threadline/blob/main/vscode/README.md)
-opens the function at your cursor, workspace methods, or Git changes in an editor
-panel. It includes source jumps, stale-source notices, refresh, and standalone HTML
-export. Build and install its VSIX locally; Python 3.12+ is required. The extension
-is not yet published on the Marketplace.
+Install [Threadline — Python Review](https://marketplace.visualstudio.com/items?itemName=Raman369AI.threadline-review)
+from the Visual Studio Marketplace, or run `code --install-extension Raman369AI.threadline-review`.
+The extension preview opens the function at your cursor, workspace methods, or Git
+changes in an editor panel. It includes source jumps, stale-source notices, refresh,
+and standalone HTML export. It requires VS Code 1.95+ and Python 3.12+. See the
+[extension guide](https://github.com/Raman369AI/threadline/blob/main/vscode/README.md).
 
 ## Read a method
 

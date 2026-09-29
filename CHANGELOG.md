@@ -6,6 +6,7 @@
   Git-change review; source navigation, stale-snapshot notices, refresh, and HTML
   export. Bundle the analyzer and run it through an isolated Python stdio bridge.
   Source jumps preserve historical evidence when the current file has changed.
+  Published on the Visual Studio Marketplace as `Raman369AI.threadline-review`.
 - Share read-only review queries between the local server and VS Code transport.
 - Add a GitHub Pages generator: paste a public repository URL, analyze its Python
   source in a browser worker, preview the review, and download standalone HTML.

@@ -4,14 +4,18 @@ Review Python methods with their original code, calls, effects, tests, callers,
 and models together inside VS Code. Threadline reads source without importing or
 executing the project, installing its dependencies, or sending its source to a service.
 
-This is a desktop extension preview, distributed as a VSIX. It is not yet listed
-on the Visual Studio Marketplace. It requires VS Code 1.95+ and **Python 3.12+**;
+This is a desktop extension preview. It requires VS Code 1.95+ and **Python 3.12+**;
 Git is needed only for change reviews. The analyzer is bundled with the extension.
 
 ## Install
 
-In VS Code, run **Extensions: Install from VSIX…** and select
-`threadline-review-0.1.0.vsix`. Reload if prompted, then open a trusted project folder.
+Install [Threadline — Python Review](https://marketplace.visualstudio.com/items?itemName=Raman369AI.threadline-review)
+from the Visual Studio Marketplace: search for **Threadline** in the Extensions view,
+or run `code --install-extension Raman369AI.threadline-review`. Then open a trusted
+project folder.
+
+To install a locally built package instead, run **Extensions: Install from VSIX…**
+and select `threadline-review-0.1.1.vsix`. Reload if prompted.
 
 If Python cannot be found, the error offers **Choose Python…**, or run
 **Threadline: Choose Python Interpreter…** at any time. It checks the version and
@@ -81,7 +85,7 @@ npm test
 npm run package
 ```
 
-The package is written to `dist/threadline-review-0.1.0.vsix`. `npm test` launches
+The package is written to `dist/threadline-review-0.1.1.vsix`. `npm test` launches
 an isolated VS Code extension development host and tests real webview loading,
 cursor selection, source jumps, dirty buffers, refresh, Git baselines, export,
 and process cleanup. It downloads a test VS Code unless `VSCODE_EXECUTABLE` points

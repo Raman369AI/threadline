@@ -2,9 +2,21 @@
   "name": "threadline-review",
   "displayName": "Threadline — Python Review",
   "description": "Read Python methods, calls, effects, tests, and Git changes together, directly from source.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Raman369AI",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#18634f",
+    "theme": "dark"
+  },
+  "preview": true,
+  "pricing": "Free",
+  "homepage": "https://raman369ai.github.io/threadline/",
+  "bugs": {
+    "url": "https://github.com/Raman369AI/threadline/issues"
+  },
+  "qna": "https://github.com/Raman369AI/threadline/issues",
   "repository": {
     "type": "git",
     "url": "https://github.com/Raman369AI/threadline.git",
@@ -20,9 +32,22 @@
   ],
   "keywords": [
     "python",
-    "review",
+    "code review",
     "call graph",
-    "data flow"
+    "data flow",
+    "static analysis",
+    "code navigation",
+    "code understanding",
+    "code visualization",
+    "pull request",
+    "git diff",
+    "fastapi",
+    "flask",
+    "django",
+    "pytest",
+    "ai code",
+    "vibe coding",
+    "onboarding"
   ],
   "main": "./dist/extension.js",
   "extensionKind": [
@@ -159,7 +184,7 @@
     "prepare-assets": "node scripts/prepare.mjs",
     "compile": "npm run prepare-assets && tsc -p .",
     "vscode:prepublish": "npm run compile",
-    "package": "vsce package --no-dependencies --out dist/threadline-review-0.1.0.vsix",
+    "package": "vsce package --no-dependencies --out dist/threadline-review-0.1.1.vsix",
     "test": "npm run compile && node --test tests/client.test.cjs && node scripts/test.mjs"
   },
   "devDependencies": {

@@ -14,8 +14,29 @@ Pages without a Python server or an API key.
 4. Explore the embedded review or select **Download HTML**. The file works offline.
 
 **Cancel** stops downloads and terminates the analyzer worker. You can start a new
-review afterward. Generating a review does not publish the reviewed source or
-create a shareable review URL. The downloaded HTML includes the reviewed source.
+review afterward. Generating a review does not publish the reviewed source. The
+downloaded HTML includes the reviewed source.
+
+## Review links and README badge
+
+Each review updates the address bar to a link that describes the request, not
+the result:
+
+```
+https://raman369ai.github.io/threadline/?repo=owner/name&ref=main&folder=src
+```
+
+`ref` and `folder` are optional. `repo` also accepts a full GitHub URL. Opening a
+link fills the form and starts the review, which fetches and analyzes the current
+source in the visitor's browser. Nothing is stored on a server, so a link to a
+branch shows that branch's latest commit; use a commit SHA for a fixed snapshot.
+
+After a review, **Copy link** and **Copy Markdown** provide the link and a README
+badge. To add the badge to your own repository:
+
+```markdown
+[![Explore in Threadline](https://img.shields.io/badge/Explore_in-Threadline-18634f)](https://raman369ai.github.io/threadline/?repo=owner/name)
+```
 
 ## Run locally
 

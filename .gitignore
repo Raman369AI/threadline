@@ -37,3 +37,5 @@ artifacts/*.png
 
 # Browser test dependencies
 node_modules/
+.vscode-test/
+*.vsix

@@ -1,4 +1,4 @@
-import {parseRepository, sourceFolder, fetchRepository} from './github.mjs';
+import {parseRepository, sourceFolder, fetchRepository, reviewLink, linkRequest, badgeMarkdown} from './github.mjs';
 
 const $ = selector => document.querySelector(selector);
 let active = null, reviewURL = null;
@@ -43,6 +43,8 @@ $('#review-form').addEventListener('submit', async event => {
     $('#error').textContent = 'Use a current browser over HTTPS (or localhost) to run Threadline.';
     $('#error').hidden = false; return;
   }
+  const link = reviewLink(request, location.href);
+  history.replaceState(null, '', link);
   const run = {controller:new AbortController(), worker:null, timer:null};
   active = run; busy(true);
   $('#result').hidden = true;
@@ -71,6 +73,8 @@ $('#review-form').addEventListener('submit', async event => {
       if (source.skippedLinks) notes.push(`${source.skippedLinks} symbolic links or submodules were not followed.`);
       if (data.summary.errors) notes.push(`${data.summary.errors} analysis problems; see Instructions → Coverage in the review.`);
       $('#coverage-note').textContent = notes.join(' ');
+      $('#review-link').value = link;
+      $('#badge-markdown').value = badgeMarkdown(link);
       $('#preview').src = reviewURL;
       $('#result').hidden = false;
       finish(run);
@@ -80,3 +84,22 @@ $('#review-form').addEventListener('submit', async event => {
     worker.postMessage(source, source.sources.map(file => file.bytes.buffer));
   } catch (error) { if (active === run) fail(run, error.message); }
 });
+for (const button of document.querySelectorAll('[data-copy]')) {
+  button.addEventListener('click', async () => {
+    const field = $('#' + button.dataset.copy), label = button.textContent;
+    try { await navigator.clipboard.writeText(field.value); button.textContent = 'Copied'; }
+    catch { field.select(); button.textContent = 'Press Ctrl+C'; }
+    setTimeout(() => { button.textContent = label; }, 2000);
+  });
+}
+// A review link (?repo=owner/name&ref=…&folder=…) fills the form and starts the review.
+try {
+  const request = linkRequest(location.search);
+  if (request) {
+    $('#repository').value = `https://github.com/${request.owner}/${request.repo}`;
+    $('#ref').value = request.ref;
+    $('#folder').value = request.folder;
+    if (request.ref || request.folder) $('#options').open = true;
+    $('#review-form').requestSubmit();
+  }
+} catch (error) { $('#error').textContent = error.message; $('#error').hidden = false; }

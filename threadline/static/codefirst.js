@@ -23,6 +23,7 @@ async function renderCodeFirst(id) {
   if (codeFirst.scope !== id) { codeFirst.highlight = null; codeFirst.beside = null; }
   codeFirst.scope = id; codeFirst.rendered = null;
   $('#methodWhere').textContent = `${scope.file}:${scope.span.start} · ${scope.async ? 'async ' : ''}${scope.kind}`;
+  if (window.threadlineHost) $('#methodWhere').append(button('Open in editor', 'quiet-button', () => window.threadlineHost.openSource({snapshot:captured.snapshotId,file:scope.file,line:scope.span.start})));
   summary.replaceChildren(el('p', 'source-peek', 'Reading…'));
   code.replaceChildren(el('p', 'source-peek', 'Loading code…'));
   context.replaceChildren();
@@ -425,6 +426,7 @@ async function openBeside(item, toggle = true) {
     head.append(el('h2', '', title), el('span', 'data-model-place', place));
     const actions = el('div', 'cf-beside-actions');
     if (scope && scope.id !== state.scope) actions.append(button('Open →', 'quiet-button', () => enterScope(scope.id, {scope: state.scope, destination: 'the caller'})));
+    if (window.threadlineHost) actions.append(button('Open in editor', 'quiet-button', () => window.threadlineHost.openSource({snapshot:item.snapshotId || captured.snapshotId,file:scope?.file || item.span.file,line:scope?.span.start || item.span.start})));
     actions.append(button('Close', 'quiet-button', closeBeside));
     head.append(actions);
     const focus = item.focus;

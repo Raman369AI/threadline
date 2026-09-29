@@ -1,0 +1,14 @@
+body {
+  --sans:var(--vscode-font-family); --mono:var(--vscode-editor-font-family);
+  --paper:var(--vscode-editor-background); --bg:var(--vscode-sideBar-background, var(--vscode-editor-background));
+  --paper-soft:var(--vscode-editor-background); --ink:var(--vscode-editor-foreground);
+  --ink-strong:var(--vscode-editor-foreground); --code-ink:var(--vscode-editor-foreground);
+  --focus:var(--vscode-focusBorder); --line:var(--vscode-panel-border, #7775);
+}
+body { padding:0; height:100dvh; display:flex; flex-direction:column; overflow:hidden; }
+.topbar, .host-status {flex-shrink:0;}
+.workspace, .workspace:not(.choosing), .workspace.choosing {height:auto;flex:1;min-height:0;}
+#themeButton { display:none; }
+.host-status {padding:6px 16px;background:var(--vscode-editorInfo-background, var(--bg));color:var(--vscode-descriptionForeground);font-size:12px;border-bottom:1px solid var(--line);}
+#methodWhere button {margin-left:12px;}
+body.vscode-high-contrast *, body.vscode-high-contrast-light * {border-color:var(--vscode-contrastBorder);}

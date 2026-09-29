@@ -24,7 +24,8 @@ Start the bundled example:
 
 Keep changes generic. A fix for one repository should be expressed as a Python-language, packaging-layout, or framework pattern and covered by a small self-contained fixture.
 
-Keep Threadline focused on standalone browser-based source review, including the
+Keep Threadline focused on source review in the browser and the desktop VS Code
+extension in `vscode/`, including the
 static GitHub Pages generator in `pages/`. The generator analyzes public repository
 source in the visitor's browser. Server-side analysis services, chat integrations,
 and target-code execution require an explicit product scope change. Treat
@@ -63,6 +64,10 @@ python3 tests/release_smoke.py dist/*.whl
 ```
 
 `python -m unittest discover` finds the root `test_*.py` unit and service tests.
+For extension changes, also run `npm ci --prefix vscode --ignore-scripts`, then
+`npm test --prefix vscode` (under `xvfb-run -a` on headless Linux) and
+`npm run package --prefix vscode`. See `vscode/README.md` for interpreter and VS Code
+test-host settings. Its Python bridge tests run in the root unittest suite.
 The `tests/` directory holds executable browser, accessibility, package, public-corpus,
 and memory-profile checks plus source fixtures. Run
 `python3 tests/profile_snapshot_memory.py` for a diagnostic synthetic profile; its

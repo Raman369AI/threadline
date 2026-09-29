@@ -41,3 +41,19 @@ page deadline.
 Generated reviews are previewed in a sandboxed iframe and can be downloaded as
 self-contained HTML containing the reviewed source. Repository content must stay
 inert in both forms. See [the Pages guide](docs/GITHUB_PAGES.md) for scope and limits.
+
+## Desktop VS Code extension
+
+The extension runs only in trusted filesystem workspaces. A machine/user setting
+selects the Python executable. It starts the bundled analyzer with `-I -S -u`,
+without a shell, from the extension directory. The target is not added to Python's
+import path; startup hooks and environment-based Python path changes are disabled.
+The interpreter itself must be trusted.
+
+Review queries use a bounded JSON-lines stdio bridge, with no listening HTTP port.
+The webview has a restrictive content security policy, nonce-authorized scripts,
+no network connection permission, and access only to bundled review assets.
+Editor jumps validate snapshot membership and file content; changed or missing
+files open as read-only snapshot documents. HTML destinations are selected by the
+extension's native save dialog, never by repository content or a webview path.
+Closing the panel or cancelling initial analysis stops the Python process.

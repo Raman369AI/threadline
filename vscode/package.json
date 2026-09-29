@@ -1,0 +1,172 @@
+{
+  "name": "threadline-review",
+  "displayName": "Threadline — Python Review",
+  "description": "Read Python methods, calls, effects, tests, and Git changes together, directly from source.",
+  "version": "0.1.0",
+  "publisher": "Raman369AI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Raman369AI/threadline.git",
+    "directory": "vscode"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "python",
+    "review",
+    "call graph",
+    "data flow"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Threadline starts a locally configured Python interpreter to analyze saved source."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "This version needs a filesystem workspace and Python 3.12+."
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "threadline.reviewFunction",
+        "title": "Open Review",
+        "category": "Threadline",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "threadline.reviewWorkspace",
+        "title": "Review Workspace",
+        "category": "Threadline"
+      },
+      {
+        "command": "threadline.reviewChanges",
+        "title": "Review Git Changes",
+        "category": "Threadline",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "threadline.refresh",
+        "title": "Refresh Review",
+        "category": "Threadline",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "threadline.exportHTML",
+        "title": "Export Review as HTML",
+        "category": "Threadline"
+      },
+      {
+        "command": "threadline.choosePython",
+        "title": "Choose Python Interpreter…",
+        "category": "Threadline"
+      },
+      {
+        "command": "threadline.showLog",
+        "title": "Show Log",
+        "category": "Threadline"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "threadline.reviewFunction",
+          "group": "navigation@10"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "threadline.reviewFunction",
+          "group": "navigation@90"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "threadline.reviewWorkspace",
+          "when": "explorerResourceIsRoot && isWorkspaceTrusted",
+          "group": "navigation@90"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "threadline.reviewWorkspace",
+          "when": "isWorkspaceTrusted"
+        },
+        {
+          "command": "threadline.reviewChanges",
+          "when": "isWorkspaceTrusted"
+        },
+        {
+          "command": "threadline.refresh",
+          "when": "threadline.reviewOpen"
+        },
+        {
+          "command": "threadline.exportHTML",
+          "when": "threadline.reviewOpen"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Threadline",
+      "properties": {
+        "threadline.pythonPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Trusted Python 3.12+ executable (not a shell command). Empty uses python3, then python. No project environment activation is needed.",
+          "markdownDescription": "Trusted Python 3.12+ executable (not a shell command). Empty uses `python3`, then `python`. Use **Threadline: Choose Python Interpreter…** to pick one. No project environment activation is needed."
+        },
+        "threadline.sourceRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "description": "Optional source directories relative to the workspace folder."
+        },
+        "threadline.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "description": "Additional relative path/glob exclusions for analysis."
+        },
+        "threadline.refreshOnSave": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Refresh an open review automatically after Python files are saved or changed on disk. Turn off for very large repositories and use Threadline: Refresh Review instead."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "prepare-assets": "node scripts/prepare.mjs",
+    "compile": "npm run prepare-assets && tsc -p .",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --no-dependencies --out dist/threadline-review-0.1.0.vsix",
+    "test": "npm run compile && node --test tests/client.test.cjs && node scripts/test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "20.17.30",
+    "@types/vscode": "1.95.0",
+    "@vscode/test-electron": "2.5.2",
+    "@vscode/vsce": "3.6.2",
+    "typescript": "5.7.3"
+  }
+}

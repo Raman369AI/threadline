@@ -141,6 +141,9 @@ def main():
         html = ready()
         check('HTML download is standalone', '<script src=' not in html and "connect-src 'none'" in html)
         check('download name includes immutable commit', driver.find_element(By.ID, 'download').get_attribute('download') == 'owner-demo-aaaaaaa-review.html')
+        link = url + '?repo=owner%2Fdemo'
+        check('address bar and share field hold the review link', driver.current_url == link and driver.find_element(By.ID, 'review-link').get_attribute('value') == link)
+        check('badge Markdown points at the review link', driver.find_element(By.ID, 'badge-markdown').get_attribute('value').endswith(f'({link})'))
         web = snapshot(html)
         with tempfile.TemporaryDirectory(prefix='threadline-pages-') as directory:
             fixture = Path(directory) / 'demo'
@@ -174,6 +177,13 @@ def main():
             driver.get(exported.as_uri())
             wait.until(lambda d: d.execute_script("return typeof workflowState !== 'undefined' && workflowState.initialized"))
             check('download reopens independently', '/items' in driver.find_element(By.ID, 'startGroups').text)
+
+        driver.get(url + '?repo=owner/demo&ref=v1')
+        check('review link fills the form', driver.find_element(By.ID, 'ref').get_attribute('value') == 'v1' and driver.find_element(By.ID, 'options').get_attribute('open') is not None)
+        ready()
+        check('review link starts the review', driver.find_element(By.ID, 'result-title').text == 'owner/demo')
+        driver.get(url + '?repo=owner/demo/tree/main')
+        check('invalid review link reports an error without starting', driver.find_element(By.ID, 'error').is_displayed() and driver.find_element(By.ID, 'result').get_attribute('hidden') is not None)
 
         if args.live:
             driver.execute_cdp_cmd('Page.removeScriptToEvaluateOnNewDocument', {'identifier':fixture_id})

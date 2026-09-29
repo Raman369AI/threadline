@@ -80,7 +80,14 @@
       </div>
       <p id="coverage-note" class="hint"></p>
       <iframe id="preview" title="Interactive Threadline code review" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
-      <p class="hint">The download is self-contained and works offline. This preview stays in your browser; it does not create a public review link.</p>
+      <p class="hint">The download is self-contained and works offline. This preview stays in your browser; nothing is uploaded.</p>
+      <div class="share">
+        <label for="review-link">Link to this review</label>
+        <div class="input-row"><input id="review-link" readonly spellcheck="false"><button class="secondary" type="button" data-copy="review-link">Copy link</button></div>
+        <label for="badge-markdown">README badge</label>
+        <div class="input-row"><input id="badge-markdown" readonly spellcheck="false"><button class="secondary" type="button" data-copy="badge-markdown">Copy Markdown</button></div>
+        <p class="hint">Opening the link generates the same review in the visitor's browser from the current source on GitHub.</p>
+      </div>
     </section>
     <section class="features" aria-label="How it works">
       <article><span class="step">01 / EXPLORE</span><h2>Find your starting point</h2><p>Browse endpoints, commands, and methods. Follow the functions they call.</p></article>

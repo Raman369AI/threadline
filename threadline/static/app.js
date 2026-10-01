@@ -721,7 +721,7 @@ async function navigation(cursor=0) {
   const host=$('#navigation');
   if(!query){host.replaceChildren();setWorkflowMode(workflowState.mode);return;}
   $('#repositoryBrowser').hidden=false;$('#workflowBrowser').hidden=true;$('#changesBrowser').hidden=true;$('#sideTree').hidden=true;
-  if(typeof narrowWindow!=='undefined' && narrowWindow.matches && sidebarCollapsed)setSidebar(false,false);
+  if(typeof isNarrow==='function' && isNarrow() && sidebarCollapsed)setSidebar(false,false);
   try {
     const data=await api('/api/starts',{q:query,snapshot:captured.snapshotId,cursor,limit:20});
     if(request!==navigationRequest || captured!==model)return;

@@ -177,8 +177,8 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         checks['module_row_shows_params_and_calls']=js("(()=>{const row=document.querySelector('.mod-item[open] .mod-method');return row.querySelector('.mm-params').textContent.includes('repository, notifier') && /^calls: [1-9]/.test(row.querySelector('.mm-meta').textContent)})()")
         calls_in_row=js("Number(document.querySelector('.mod-item[open] .mm-meta [title^=\"Project methods\"]').textContent.split(': ')[1])")
         js("document.querySelector('.mod-item[open] .mod-method').click()")
-        until("document.querySelector('#methodName').textContent==='place_order' && document.querySelector('#reviewNav .nav-menu[data-kind=calls]')!==null")
-        checks['row_calls_match_the_calls_menu']=js("Number(document.querySelector('#reviewNav .nav-menu[data-kind=calls] .nav-count').textContent)==="+str(calls_in_row)+" && "+str(calls_in_row)+">0 && document.querySelectorAll('#cfSummary [data-kind=calls] .cf-chip').length>="+str(calls_in_row))
+        # Wait on the value itself: the previous method's review bar is still on screen until the new one renders.
+        checks['row_calls_match_the_calls_menu']=until("document.querySelector('#methodName').textContent==='place_order' && Number(document.querySelector('#reviewNav .nav-menu[data-kind=calls] .nav-count')?.textContent)==="+str(calls_in_row)+" && "+str(calls_in_row)+">0 && document.querySelectorAll('#cfSummary [data-kind=calls] .cf-chip').length>="+str(calls_in_row))
         # Folders: opening one in the sidebar shows only its modules; Show all lifts the filter.
         js("showStartPage('methods')")
         until("document.querySelectorAll('.mod-item').length>2")

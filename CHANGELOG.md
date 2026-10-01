@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Keep the view tabs on screen above the page on a narrow window or panel, with the rest of the
+  sidebar in the drawer, and size the method heading for narrow columns.
+
 ## 0.2.0b6 — 2026-09-30
 
 - Restyle the review with a tonal dark design: icon buttons and search in the header, a

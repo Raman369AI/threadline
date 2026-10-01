@@ -1,8 +1,10 @@
 **
 !package.json
 !README.md
+!CHANGELOG.md
 !LICENSE
 !media/icon.png
+!media/walkthrough/*.md
 !dist/extension.js
 !dist/client.js
 !build/python/runner.py

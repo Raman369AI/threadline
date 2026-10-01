@@ -15,7 +15,10 @@ or run `code --install-extension Raman369AI.threadline-review`. Then open a trus
 project folder.
 
 To install a locally built package instead, run **Extensions: Install from VSIX…**
-and select `threadline-review-0.1.1.vsix`. Reload if prompted.
+and select `threadline-review-0.2.0.vsix`. Reload if prompted.
+
+The **Get started with Threadline** walkthrough (Welcome page, or **Help: Open Walkthrough…**) walks through
+the first review.
 
 If Python cannot be found, the error offers **Choose Python…**, or run
 **Threadline: Choose Python Interpreter…** at any time. It checks the version and
@@ -25,10 +28,10 @@ commands are not supported.
 
 ## Review
 
-Click the Threadline button in the editor title bar, available on every file, or
-right-click → **Threadline: Open Review**. In a Python file it saves the file and
-selects the function at the cursor. Anywhere else, or outside a function, it opens
-the workspace review. While a review is open, it reuses the panel without indexing again.
+Click the Threadline button in the editor title bar of a Python file, select **Threadline** in the
+status bar, or right-click → **Threadline: Review Function at Cursor**. It saves the file and
+selects the function at the cursor. Run it from the Command Palette on another kind of file, or
+outside a function, and it opens the workspace review. While a review is open, it reuses the panel without indexing again.
 Select a project call, related test, or caller to read it beside the selected
 method; **Open →** follows it within the review. **Open in editor** jumps to source.
 
@@ -36,15 +39,16 @@ The Command Palette also provides:
 
 | Command | What it does |
 | --- | --- |
-| Threadline: Open Review | Reviews the function at the cursor, or the workspace when there is none. |
-| Threadline: Review Workspace | Opens the module and method browser for the active workspace folder. Also available by right-clicking a root folder in the Explorer. |
+| Threadline: Review Function at Cursor | Reviews the function at the cursor, or the workspace when there is none. |
+| Threadline: Review Workspace | Opens the catalog of endpoints, commands, and modules for the active workspace folder, starting on the first page the project has. Also available by right-clicking a root folder in the Explorer. |
 | Threadline: Review Git Changes | Compares saved files with a Git revision chosen from HEAD, recent branches, and tags, or typed in. `HEAD` includes staged and unstaged edits; untracked files are analyzed too. |
 | Threadline: Refresh Review | Reads saved files again, preserving the selected method when it still exists. |
 | Threadline: Export Review as HTML | Saves the current workspace review, including its Git baseline when present, as a standalone HTML file. |
 | Threadline: Choose Python Interpreter… | Picks and validates the Python 3.12+ executable used for analysis. |
 | Threadline: Show Log | Opens the Threadline output channel. |
 
-The status bar shows whether the open review is current, refreshing, stale, or
+The status bar shows **Threadline** whenever a Python file is active (click it to review the
+function at the cursor) and, once a review is open, whether it is current, refreshing, stale, or
 waiting on unsaved edits; click it to show or refresh the review. Saving a Python
 file, or a Python file changing on disk, refreshes the review automatically. Set
 `threadline.refreshOnSave` to `false` to refresh manually. Other files never mark
@@ -85,7 +89,7 @@ npm test
 npm run package
 ```
 
-The package is written to `dist/threadline-review-0.1.1.vsix`. `npm test` launches
+The package is written to `dist/threadline-review-0.2.0.vsix`. `npm test` launches
 an isolated VS Code extension development host and tests real webview loading,
 cursor selection, source jumps, dirty buffers, refresh, Git baselines, export,
 and process cleanup. It downloads a test VS Code unless `VSCODE_EXECUTABLE` points

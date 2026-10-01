@@ -1,7 +1,7 @@
 'use strict';
 (() => {
   const vscode = acquireVsCodeApi(), pending = new Map();
-  let serial = 0, firstReady = true;
+  let serial = 0;
   const call = (type, data) => new Promise((resolve, reject) => {
     if (pending.size >= 64) { reject(new Error('Too many pending requests')); return; }
     const id = ++serial;
@@ -13,8 +13,6 @@
     location: 'https://threadline.invalid/' + document.querySelector('meta[name="threadline-start"]').content,
     request: (path, params, options) => call('query', {path, params, method:options.method || 'GET'}),
     ready: data => {
-      if (firstReady && data.scope && window.innerWidth < 760) document.querySelector('#sidebarToggle').click();
-      firstReady = false;
       if (new URL(window.threadlineHost.location).searchParams.has('changes')) setWorkflowMode('changes');
       vscode.postMessage({type:'ready', ...data});
     },

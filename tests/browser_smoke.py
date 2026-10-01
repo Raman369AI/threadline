@@ -237,6 +237,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         # Narrow window: the sidebar is a drawer, closed to start, closed again by a choice or Escape.
         command('Emulation.setDeviceMetricsOverride',{'width':390,'height':850,'deviceScaleFactor':1,'mobile':True})
         checks['narrow_sidebar_starts_closed']=until("document.querySelector('.workspace').classList.contains('sidebar-collapsed')")
+        checks['narrow_view_tabs_stay_on_screen']=until("document.querySelector('#narrowTabs #methodsTab')!==null && document.querySelector('#narrowTabs').getBoundingClientRect().height>0 && document.querySelector('#methodsTab').getBoundingClientRect().width>0 && document.querySelector('.workspace').classList.contains('sidebar-collapsed')")
         js("document.querySelector('#sidebarToggle').click()")
         checks['narrow_sidebar_is_a_drawer']=until("(()=>{const nav=document.querySelector('#repositoryNavigator'),box=nav.getBoundingClientRect();return getComputedStyle(nav).position==='fixed' && box.width>200 && box.width<=351 && box.height>300 && document.documentElement.scrollWidth<=innerWidth})()")
         js("document.querySelector('#commandsTab').click()")
@@ -253,6 +254,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         checks['choosing_a_result_closes_the_drawer']=until("document.querySelector('.workspace').classList.contains('sidebar-collapsed') && state.scope!==null")
         command('Emulation.setDeviceMetricsOverride',{'width':1280,'height':900,'deviceScaleFactor':1,'mobile':False})
         js("if(sidebarCollapsed)document.querySelector('#sidebarToggle').click()")
+        checks['wide_view_tabs_return_to_the_sidebar']=until("document.querySelector('#repositoryNavigator #methodsTab')!==null && document.querySelector('#narrowTabs').childElementCount===0")
         for category, page, expected in (('http','endpoints','list_tasks'),('commands','commands','main')):
             js("showStartPage("+json.dumps(page)+")")
             js("[...document.querySelectorAll('#startGroups [data-category="+category+"] .start-item')].find(item=>item.textContent.includes("+json.dumps(expected)+")).click()")

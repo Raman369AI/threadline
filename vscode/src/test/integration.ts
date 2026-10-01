@@ -17,6 +17,13 @@ export async function run() {
   const uri = vscode.Uri.joinPath(folder.uri, 'demo.py');
   const document = await vscode.workspace.openTextDocument(uri);
   await vscode.window.showTextDocument(document, {selection:new vscode.Range(4, 8, 4, 8)});
+  // Before any review is open, a Python file offers one from the status bar, and the manifest is as described.
+  assert.equal(api.status.command, 'threadline.reviewFunction');
+  assert.ok(api.status.text.includes('Threadline'));
+  const manifest = extension.packageJSON;
+  assert.equal(manifest.contributes.walkthroughs[0].id, 'threadline.gettingStarted');
+  assert.deepEqual([...manifest.contributes.menus['editor/title'], ...manifest.contributes.menus['editor/context']].map((item: any) => item.when), ['resourceLangId == python', 'resourceLangId == python']);
+  assert.equal(manifest.contributes.commands.find((item: any) => item.command === 'threadline.reviewFunction').title, 'Review Function at Cursor');
   const session = await vscode.commands.executeCommand<ReviewSession>('threadline.reviewFunction');
   assert.ok(session);
   await until(() => !!session.ready, 'webview fully loads the selected function');

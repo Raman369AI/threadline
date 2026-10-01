@@ -218,11 +218,16 @@ function setSidebar(collapsed, announceChange = true) {
 }
 $('#sidebarToggle').addEventListener('click', () => setSidebar(!sidebarCollapsed));
 if (isNarrow()) setSidebar(true, false);
+// On a narrow window the view tabs stay on screen as a strip above the page; the rest of the sidebar is the drawer.
+const viewTabs = $('.view-tabs'), tabsHome = viewTabs.parentElement, tabsBefore = $('#sideTree');
+const placeViewTabs = narrow => { if (narrow) $('#narrowTabs').append(viewTabs); else tabsHome.insertBefore(viewTabs, tabsBefore); };
 let wasNarrow = isNarrow();
+if (wasNarrow) placeViewTabs(true);
 new ResizeObserver(() => {
   const narrow = isNarrow();
   if (narrow === wasNarrow) return;
   wasNarrow = narrow;
+  placeViewTabs(narrow);
   setSidebar(narrow ? true : sidebarWideCollapsed, false);
 }).observe(document.body);
 // What counts as a choice in the drawer: a view, a file, a search result, or a step of the call map.

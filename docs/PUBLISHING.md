@@ -95,3 +95,25 @@ python3 -m venv "$release_env_dir"
 | A distribution filename already exists | Inspect PyPI before retrying. PyPI cannot replace or reuse an uploaded filename, even after deletion; changed packages need a new version. See [PyPI's filename rules](https://pypi.org/help/#file-name-reuse). |
 
 For an authentication failure before any upload, correct the publisher configuration and rerun the failed job. If an upload partially succeeded, inspect the files already present before retrying: this workflow does not skip existing files. Avoid deleting releases as a way to reuse a version.
+
+## Publish the VS Code extension
+
+The extension is versioned and published separately from the PyPI package. It bundles the analyzer and
+review UI from this repository when it is built, so build it from the commit you intend to ship.
+
+1. Set `version` and the `package` script's output name in [vscode/package.json](../vscode/package.json), and
+   add the release to [vscode/CHANGELOG.md](../vscode/CHANGELOG.md).
+2. Build and test: `npm ci --prefix vscode --ignore-scripts`, then `xvfb-run -a npm test --prefix vscode` on
+   headless Linux (plain `npm test --prefix vscode` elsewhere), then `npm run package --prefix vscode`. The package is
+   written to `vscode/dist/threadline-review-<version>.vsix`; CI also uploads it as the `threadline-vscode` artifact.
+3. Create a Personal Access Token for the `Raman369AI` publisher with the **Marketplace → Manage** scope, as
+   described in the [publishing guide](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
+4. Check the token, then publish the package you tested, not a fresh build:
+
+```bash
+cd vscode
+npx @vscode/vsce verify-pat Raman369AI --pat "$VSCE_PAT"
+npx @vscode/vsce publish --packagePath dist/threadline-review-<version>.vsix --pat "$VSCE_PAT"
+```
+
+Keep the token out of the repository and shell history; read it from an environment variable or a secret store.

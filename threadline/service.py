@@ -91,6 +91,20 @@ def evidence_id(span: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
 
+def _scope_facts(model: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    """What a catalog or module row shows without opening the method: async, signature, call count, effects."""
+    scope = model['scopes'].get(row.get('id'))
+    if scope is None:
+        return row
+    effects = sorted({item['effect'] for item in scope.get('sideEffects', []) if item.get('effect') != 'raises'})
+    return {**row, 'async': bool(scope.get('async')), 'params': scope.get('paramText', ''),
+            'calls': scope.get('stats', {}).get('projectCalls', 0), 'effects': effects}
+
+
+def _page_with_facts(model: dict[str, Any], page: dict[str, Any]) -> dict[str, Any]:
+    return {**page, 'items': [_scope_facts(model, row) for row in page['items']]}
+
+
 def add_evidence_ids(value: Any) -> Any:
     """Add stable-within-snapshot references without mutating the model."""
     result = copy.deepcopy(value)
@@ -233,6 +247,7 @@ class SnapshotStore:
         self._dataflow_cache_bytes = 0
         self._dataflow_lock = threading.Lock()
         self._test_index: dict[str, dict[str, Any]] = {}
+        self._routes: dict[str, dict[str, list[str]]] = {}
         self._test_lock = threading.Lock()
 
     def refresh(self) -> dict[str, Any]:
@@ -277,6 +292,7 @@ class SnapshotStore:
             self._evidence.pop(expired, None)
             self._registered_evidence.pop(expired, None)
             self._test_index.pop(expired, None)
+            self._routes.pop(expired, None)
             with self._workflow_lock:
                 for key in list(self._workflow_cache):
                     if key[0] == expired:
@@ -338,35 +354,50 @@ class SnapshotStore:
         if category:
             selected = [row for row in rows if row['category'] == category and (not method or method.upper() in row.get('httpMethods', []))]
             if category == 'methods': selected.sort(key=lambda row: (row['file'], row['line'], row['name']))
-            return {**metadata, 'results': add_evidence_ids(_page(selected, cursor, limit))}
+            return {**metadata, 'results': _page_with_facts(model, add_evidence_ids(_page(selected, cursor, limit)))}
         if terms:
             # A function with multiple route decorators remains one search result.
             matches = list({row['id']: row for row in reversed(rows)}.values())
             matches.sort(key=lambda row: _search_rank(row, query))
-            return {**metadata, 'results': add_evidence_ids(_page(matches, cursor, limit))}
+            return {**metadata, 'results': _page_with_facts(model, add_evidence_ids(_page(matches, cursor, limit)))}
         return {**metadata,
-                'groups': {kind: add_evidence_ids(_page([row for row in rows if row['category'] == kind], cursor, limit)) for kind in categories}}
+                'groups': {kind: _page_with_facts(model, add_evidence_ids(_page([row for row in rows if row['category'] == kind], cursor, limit))) for kind in categories}}
+
+    def _route_labels(self, model: dict[str, Any]) -> dict[str, list[str]]:
+        """Route labels by method id, built once per snapshot."""
+        found = self._routes.get(model['snapshotId'])
+        if found is None:
+            found = {}
+            for entry in model['catalog']:
+                if entry['category'] == 'http':
+                    found.setdefault(entry['id'], []).append(entry['label'])
+            self._routes[model['snapshotId']] = found
+        return found
 
     def modules(self, *, snapshot_id=None, file=None, query='', cursor=0, limit=20):
         model = self.model(snapshot_id)
         scopes = [scope for scope in model['scopes'].values() if scope['kind'] not in ('module', 'class')]
         terms = query.casefold().split()
         matches = lambda text: all(term in text.casefold() for term in terms)
+        routes = self._route_labels(model)
         if file is not None:
             if file not in model['files']:
                 raise ThreadlineError('Module is not present in this snapshot')
             members = [scope for scope in scopes if scope['file'] == file]
             module = members[0]['module'] if members else file
-            rows = [{'id': scope['id'], 'name': scope['qualified'], 'label': scope['qualified'],
-                     'file': file, 'line': scope['span']['start'], 'span': scope['span']}
+            rows = [_scope_facts(model, {'id': scope['id'], 'name': scope['qualified'], 'label': scope['qualified'],
+                     'file': file, 'line': scope['span']['start'], 'span': scope['span'],
+                     'routes': routes.get(scope['id'], [])})
                     for scope in members if matches(scope['qualified'])]
             rows.sort(key=lambda row: (row['name'].split('.')[-1].startswith('__'), row['name'].casefold(), row['line']))
             return {'snapshotId': model['snapshotId'], 'module': {'name': module, 'file': file, 'total': len(members)},
                     'methods': add_evidence_ids(_page(rows, cursor, limit))}
         modules: dict[str, dict[str, Any]] = {}
         for scope in scopes:
-            row = modules.setdefault(scope['file'], {'file': scope['file'], 'name': scope['module'], 'total': 0})
+            row = modules.setdefault(scope['file'], {'file': scope['file'], 'name': scope['module'], 'total': 0, 'async': 0, 'routes': 0})
             row['total'] += 1
+            row['async'] += bool(scope.get('async'))
+            row['routes'] += scope['id'] in routes
         rows = sorted((row for row in modules.values() if matches(row['name']+' '+row['file'])), key=lambda row: (testlinks.is_test_file(row['file']), row['name'], row['file']))
         return {'snapshotId': model['snapshotId'], 'modules': _page(rows, cursor, limit)}
 
@@ -451,7 +482,8 @@ class SnapshotStore:
         return {'snapshotId': model['snapshotId'], 'symbol': symbol_id, 'role': 'test' if is_test else 'code',
                 'summary': overview.summary(model, scope), 'where': f"{scope['file']}:{scope['span']['start']}",
                 'counts': {'tests': len(tests), 'callers': len(rows), 'unresolved': scope['stats']['unresolved']},
-                'callers': add_evidence_ids(_page(rows, cursor, limit))}
+                'callers': add_evidence_ids(_page(rows, cursor, limit)),
+                'callees': add_evidence_ids(_page(overview.callees(model, scope), 0, MAX_PAGE))}
 
     def related_tests(self, symbol_id, *, snapshot_id=None, cursor=0, limit=20):
         """Tests linked to a method, or the methods a selected test exercises."""

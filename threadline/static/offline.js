@@ -47,6 +47,13 @@ window.threadlineOffline = (() => {
     const terms = String(params.q || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
     const matches = text => terms.every(term => text.toLowerCase().includes(term));
     const scopes = Object.values(saved.scopes);
+    // Mirrors service._scope_facts: what a row shows without opening the method.
+    const facts = row => { const info = saved.scopes[row.id]; if (!info) return row;
+      return {...row, async:Boolean(info.async), params:info.paramText || '', calls:info.stats?.projectCalls || 0,
+        effects:[...new Set((info.sideEffects || []).map(item => item.effect).filter(effect => effect !== 'raises'))].sort()}; };
+    const withFacts = result => ({...result, items:result.items.map(facts)});
+    const routes = new Map();
+    for (const entry of saved.catalog) if (entry.category === 'http') routes.set(entry.id, [...(routes.get(entry.id) || []), entry.label]);
     const scope = saved.scopes[params.symbol];
     const method = saved.methods[params.symbol || params.entrypoint];
     if (path === '/api/summary') return saved.summary;
@@ -58,7 +65,7 @@ window.threadlineOffline = (() => {
       if (params.category) {
         rows = rows.filter(row => row.category === params.category && (!params.method || (row.httpMethods || []).includes(params.method.toUpperCase())));
         if (params.category === 'methods') rows.sort((a,b) => compare(a.file,b.file) || a.line-b.line || compare(a.name,b.name));
-        return {snapshotId, counts, httpMethods, results:paged(rows)};
+        return {snapshotId, counts, httpMethods, results:withFacts(paged(rows))};
       }
       if (terms.length) {
         rows = [...new Map([...rows].reverse().map(row => [row.id, row])).values()];
@@ -69,20 +76,20 @@ window.threadlineOffline = (() => {
             Number(isTestFile(row.file)), Number(name.includes('<lambda')), Number(last.startsWith('__'))]; };
         const ranked = new Map(rows.map(row => [row, rank(row)]));
         rows.sort((a,b) => ranked.get(a).reduce((order, value, i) => order || value - ranked.get(b)[i], 0) || compare(a.label.toLowerCase(),b.label.toLowerCase()) || compare(a.file,b.file));
-        return {snapshotId, counts, httpMethods, results:paged(rows)};
+        return {snapshotId, counts, httpMethods, results:withFacts(paged(rows))};
       }
-      return {snapshotId, counts, httpMethods, groups:Object.fromEntries(categories.map(kind => [kind,paged(rows.filter(row => row.category === kind))]))};
+      return {snapshotId, counts, httpMethods, groups:Object.fromEntries(categories.map(kind => [kind,withFacts(paged(rows.filter(row => row.category === kind)))]))};
     }
     if (path === '/api/modules') {
       const callables = scopes.filter(row => !['module', 'class'].includes(row.kind));
       if (params.file !== undefined) {
         const members = callables.filter(row => row.file === params.file);
-        const rows = members.filter(row => matches(row.qualified)).map(row => ({id:row.id, name:row.qualified, label:row.qualified, file:row.file, line:row.span.start, span:row.span}));
+        const rows = members.filter(row => matches(row.qualified)).map(row => facts({id:row.id, name:row.qualified, label:row.qualified, file:row.file, line:row.span.start, span:row.span, routes:routes.get(row.id) || []}));
         rows.sort((a,b) => Number(a.name.split('.').at(-1).startsWith('__')) - Number(b.name.split('.').at(-1).startsWith('__')) || compare(a.name.toLowerCase(),b.name.toLowerCase()) || a.line-b.line);
         return {snapshotId, module:{name:members[0]?.module || params.file, file:params.file, total:members.length}, methods:paged(rows)};
       }
       const modules = new Map();
-      for (const row of callables) { if (!modules.has(row.file)) modules.set(row.file,{file:row.file,name:row.module,total:0}); modules.get(row.file).total++; }
+      for (const row of callables) { if (!modules.has(row.file)) modules.set(row.file,{file:row.file,name:row.module,total:0,async:0,routes:0}); const entry = modules.get(row.file); entry.total++; entry.async += Boolean(row.async); entry.routes += routes.has(row.id); }
       const rows = [...modules.values()].filter(row => matches(row.name + ' ' + row.file)).sort((a,b) => Number(isTestFile(a.file)) - Number(isTestFile(b.file)) || compare(a.name,b.name) || compare(a.file,b.file));
       return {snapshotId, modules:paged(rows)};
     }

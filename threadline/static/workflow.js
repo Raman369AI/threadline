@@ -24,12 +24,14 @@ function setWorkflowMode(mode) {
   $('#startTitle').textContent=mode==='changes'?'Choose a changed method':catalogTitles[catalogPage];
   $('#startHint').textContent=mode==='changes'?'Select a method to review its workflow, or compare its before and after source.':catalogPage==='endpoints'?'Choose an endpoint to open its workflow and source. Paths are shown as declared in source.':catalogPage==='commands'?'Choose a command or task to open its workflow and source.':'Choose a module, then a method. Follow its calls across modules in the same workflow.';
   $('#repositoryBrowser').hidden=true;
+  $('#sideTree').hidden=mode!=='starts' || !$('#sideTree').childElementCount;
   $('#changesBrowser').hidden=mode!=='changes';
   $('#changesTab').setAttribute('aria-pressed',String(mode==='changes'));
   $('#workflowBrowser').hidden=mode!=='workflow';
   $('#workflowContext').hidden=mode!=='workflow';
   $('.workspace').classList.add('workflow-mode');
   $('#workflowTab').setAttribute('aria-pressed',String(mode==='workflow'));
+  $('#workflowTab .tab-state').textContent=mode==='workflow'?'ACTIVE':'IDLE';
   for(const [page,id] of Object.entries({endpoints:'endpointsTab',commands:'commandsTab',methods:'methodsTab'}))$('#'+id).setAttribute('aria-pressed',String(mode==='starts' && catalogPage===page));
   if(mode==='workflow'){renderWorkflow();renderWorkflowContext();}
 }

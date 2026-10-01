@@ -13,6 +13,22 @@ function projectCalls(data) {
 function calleeName(event) {
   return String(event.label || '').replace(/^call /, '') || String(event.expression || '').split('(')[0];
 }
+// The methods a method calls: the analyzer's complete list, or, from a server or saved review that predates it,
+// the calls the flow view lays out.
+function calleesFrom(overview, calls, id) {
+  if (overview?.callees) return overview.callees;
+  const seen = new Map();
+  for (const call of calls) {
+    const target = call.details.targets[0];
+    if (target !== id && !seen.has(target)) seen.set(target, call);
+  }
+  const items = [...seen].map(([target, call]) => {
+    const info = model.scopes[target];
+    return {id: target, name: info?.qualified || calleeName(call), file: info?.file || '', line: info?.span.start || 0,
+      callLine: call.span.start, status: call.details.callStatus};
+  });
+  return {items, total: items.length};
+}
 function isCallable(scope) {
   return !['module', 'class'].includes(scope.kind);
 }
@@ -22,7 +38,7 @@ async function renderCodeFirst(id) {
   const code = $('#cfCode'), summary = $('#cfSummary'), context = $('#cfContext');
   if (codeFirst.scope !== id) { codeFirst.highlight = null; codeFirst.beside = null; }
   codeFirst.scope = id; codeFirst.rendered = null;
-  $('#methodWhere').textContent = `${scope.file}:${scope.span.start} · ${scope.async ? 'async ' : ''}${scope.kind}`;
+  $('#methodWhere').replaceChildren(`${scope.file}:${scope.span.start} · `, el('span', 'cf-kind', `${scope.async ? 'async ' : ''}${scope.kind}`));
   if (window.threadlineHost) $('#methodWhere').append(button('Open in editor', 'quiet-button', () => window.threadlineHost.openSource({snapshot:captured.snapshotId,file:scope.file,line:scope.span.start})));
   summary.replaceChildren(el('p', 'source-peek', 'Reading…'));
   code.replaceChildren(el('p', 'source-peek', 'Loading code…'));
@@ -30,16 +46,18 @@ async function renderCodeFirst(id) {
   try {
     if (!isCallable(scope)) {
       summary.replaceChildren(el('p', 'source-peek', scope.kind === 'module' ? 'Module body: code that runs when the module is imported or run.' : 'Class body.'));
+      renderReviewNav(id);
       await renderScopeSource(code, scope, scope.span.start, request);
       if (request === codeFirst.request) { renderContext(context, null, id); codeFirst.rendered = captured.snapshotId + '|' + id; }
       return;
     }
-    const [source, data] = await Promise.all([boundedMethodLines(id, captured.snapshotId), getFlowOverview(id, captured)]);
+    const [source, data, overview] = await Promise.all([boundedMethodLines(id, captured.snapshotId), getFlowOverview(id, captured), overviewOf(id, captured).catch(() => null)]);
     if (request !== codeFirst.request || captured !== model || state.scope !== id) return;
     const calls = projectCalls(data);
     renderCodeLines(code, source.rows, calls);
-    renderSummary(summary, scope, data, calls);
+    renderSummary(summary, scope, data, calls, calleesFrom(overview, calls, id));
     renderContext(context, data, id);
+    renderReviewNav(id, calls);
     if (codeFirst.highlight) highlightName(codeFirst.highlight, false);
     if (codeFirst.beside) openBeside(codeFirst.beside, false);
     codeFirst.rendered = captured.snapshotId + '|' + id;
@@ -70,8 +88,11 @@ function renderCodeLines(host, rows, calls) {
     byLine.get(call.span.start).push(call);
   }
   host.replaceChildren();
+  let defined = false;
   for (const row of rows) {
     const line = codeLine(row.number, row.text);
+    // The definition line carries the accent bar, as the decorator lines above it do not.
+    if (!defined && /^\s*(async\s+)?def\s/.test(row.text)) { defined = true; line.classList.add('cf-def-line'); }
     markNames(line.querySelector('.line-content'), row.text, byLine.get(row.number) || []);
     host.append(line);
   }
@@ -108,9 +129,13 @@ function markNames(content, text, calls) {
         token.title = 'Open ' + calleeName(call) + ' beside the code';
         token.dataset.target = target;
       } else if (attribute) {
-        token = el('span', 'cf-attr', name);
+        token = el('span', /^\s*\(/.test(text.slice(at + name.length)) ? 'cf-attr cf-fn' : 'cf-attr', name);
       } else {
         token = el('span', 'cf-name', name);
+        const following = text.slice(at + name.length);
+        // Calls read as functions, Capitalized names as classes, and the name after def as the definition.
+        if (/^\s*\(/.test(following)) token.classList.add(/\b(?:def|class)\s+$/.test(text.slice(0, at)) ? 'cf-def' : 'cf-fn');
+        else if (/^[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*$/.test(name)) token.classList.add('cf-cls');
         token.addEventListener('click', () => highlightName(name));
       }
       if (!attribute) {
@@ -163,10 +188,11 @@ function chip(label, handler, title = '') {
   if (title) item.title = title;
   return item;
 }
-function renderSummary(host, scope, data, calls) {
+function renderSummary(host, scope, data, calls, callees) {
   host.replaceChildren();
   const group = (label, items, empty) => {
     const row = el('div', 'cf-group');
+    row.dataset.kind = label.toLowerCase();
     row.append(el('span', 'cf-label', label));
     if (items.length) row.append(...items); else row.append(el('span', 'cf-none', empty));
     host.append(row);
@@ -190,12 +216,11 @@ function renderSummary(host, scope, data, calls) {
     if (provided) item.classList.add('cf-provided');
     return item;
   }), 'nothing');
-  const targets = [...new Map(calls.map(call => [call.details.targets[0], call])).values()];
-  const projectChips = targets.map(call => {
-    const target = call.details.targets[0];
-    const item = chip(model.scopes[target]?.qualified || calleeName(call), () => openCall(target), 'Open beside the code');
-    item.dataset.target = target;
-    if (call.details.callStatus === 'possible') { item.classList.add('cf-possible'); item.title = 'Probably calls this; open beside the code'; }
+  // The methods this one calls come from the analyzer's complete list, not only the calls the flow view lays out.
+  const projectChips = callees.items.map(row => {
+    const item = chip(row.name, () => openCall(row.id), 'Open beside the code');
+    item.dataset.target = row.id;
+    if (row.status === 'possible') { item.classList.add('cf-possible'); item.title = 'Probably calls this; open beside the code'; }
     return item;
   });
   // Calls on what the method receives, such as repository.save(order) or db.commit(), are often its
@@ -222,7 +247,7 @@ function renderSummary(host, scope, data, calls) {
     if (!library) item.classList.add('cf-possible');
     return item;
   });
-  group('Calls', [...projectChips, ...receivedChips], 'no project functions');
+  group('Calls', capChips([...projectChips, ...receivedChips], 14), 'no project functions');
   // A name is a definite change if any write to it is; otherwise it is only a possible effect.
   // self and cls keep their attribute (self.items); a chip for those highlights the changing lines.
   const changed = new Map();
@@ -336,6 +361,12 @@ function renderContext(host, data, id) {
   }
 }
 
+// A drawer heading: the title, then its count as a pill.
+function cfHeading(title, count) {
+  const heading = el('h2', '', title + (count === undefined ? '' : ' '));
+  if (count !== undefined) heading.append(el('span', 'cf-count', String(count)));
+  return heading;
+}
 function listRow(label, place, detail, open) {
   const row = button('', 'cf-row', open);
   row.append(el('code', 'cf-row-name', label), el('span', 'cf-row-place', place));
@@ -350,7 +381,7 @@ async function loadTestList(host, id, cursor = 0) {
     if (captured !== model || state.scope !== id || !host.isConnected) return;
     const page = result.items, isTest = result.role === 'test';
     if (!cursor) {
-      host.replaceChildren(el('h2', '', (isTest ? 'Code this test reaches' : 'Tests') + ` · ${page.total}`));
+      host.replaceChildren(cfHeading(isTest ? 'Code this test reaches' : 'Tests', page.total));
       if (!page.total) host.append(el('p', 'source-peek', isTest ? 'No linked code found.'
         : result.testCount ? 'No test reaches this method through calls, routes, or names.'
         : 'No tests found. If tests live outside the analyzed folders, include them with --source-root.'));
@@ -374,7 +405,7 @@ async function loadCallerList(host, id, cursor = 0) {
     if (captured !== model || state.scope !== id || !host.isConnected) return;
     const page = result.callers;
     if (!cursor) {
-      host.replaceChildren(el('h2', '', `Callers · ${page.total}`));
+      host.replaceChildren(cfHeading('Callers', page.total));
       if (!page.total) host.append(el('p', 'source-peek', 'Nothing in the analyzed source calls this directly. Routes, commands, and callbacks are called by frameworks.'));
     }
     host.querySelector('.cf-list-more')?.remove();
@@ -512,3 +543,115 @@ document.addEventListener('keydown', event => {
     event.preventDefault(); set(next, true);
   });
 })();
+
+
+// Review bar: previous and next method in the file, the method that led here, and menus of
+// its callers and of the methods it calls.
+const reviewNav = {request: 0, previous: null, next: null};
+function overviewOf(id, captured = model) {
+  captured.overviews ||= new Map();
+  if (!captured.overviews.has(id)) {
+    const promise = api('/api/overview', {symbol: id, snapshot: captured.snapshotId, cursor: 0, limit: 100});
+    captured.overviews.set(id, promise);
+    promise.catch(() => captured.overviews.delete(id));
+  }
+  return captured.overviews.get(id);
+}
+function navMenu(label, rows, empty, total = rows.length) {
+  const box = el('details', 'nav-menu'), head = el('summary', '');
+  box.dataset.kind = label.toLowerCase().replace(/\s+/g, '-');
+  head.append(el('span', '', label), el('span', 'nav-count', String(total)));
+  const list = el('div', 'nav-menu-list');
+  if (!rows.length) list.append(el('p', 'source-peek', empty));
+  for (const row of rows) {
+    const item = listRow(row.name, row.place, row.detail, () => { box.open = false; row.open(); });
+    if (row.possible) item.classList.add('cf-possible');
+    list.append(item);
+  }
+  if (total > rows.length) list.append(el('p', 'source-peek', `+${total - rows.length} more in the review`));
+  box.append(head, list);
+  box.addEventListener('toggle', () => {
+    if (!box.open) return;
+    document.querySelectorAll('.nav-menu[open]').forEach(other => { if (other !== box) other.open = false; });
+    // Keep the list inside the review column, whichever side of the bar the button is on.
+    const bounds = ($('.cf-main') || document.body).getBoundingClientRect(), anchor = box.getBoundingClientRect();
+    const width = list.getBoundingClientRect().width;
+    const left = Math.max(bounds.left + 8, Math.min(anchor.left, bounds.right - width - 8));
+    list.style.left = (left - anchor.left) + 'px'; list.style.right = 'auto';
+  });
+  return box;
+}
+async function renderReviewNav(id, calls = []) {
+  const request = ++reviewNav.request, captured = model, scope = captured.scopes[id], host = $('#reviewNav');
+  const stale = () => request !== reviewNav.request || captured !== model || state.scope !== id;
+  reviewNav.previous = reviewNav.next = null;
+  let siblings = [], callers = [], callersTotal = 0, callees = {items: [], total: 0};
+  try {
+    let overview = null;
+    [siblings, overview] = await Promise.all([methodsInFile(scope.file, captured), isCallable(scope) ? overviewOf(id, captured) : null]);
+    if (overview) {
+      callers = [...new Map(overview.callers.items.map(row => [row.id, row])).values()];
+      callersTotal = overview.callers.total;
+      callees = calleesFrom(overview, calls, id);
+    }
+  } catch { /* The bar shows what it could read. */ }
+  if (stale()) return;
+  const index = siblings.findIndex(row => row.id === id);
+  const previous = index > 0 ? siblings[index - 1] : null, next = siblings[index + 1] || null;
+  const go = row => row && chooseScope(row.id);
+  reviewNav.previous = previous && (() => go(previous)); reviewNav.next = next && (() => go(next));
+  const step = (text, row, none) => {
+    const item = button(text, 'quiet-button nav-step', () => go(row));
+    if (row) item.title = `${row.name} · line ${row.line}` ; else { item.disabled = true; item.title = none; }
+    return item;
+  };
+  const group = el('div', 'nav-group');
+  group.append(step('‹ Previous', previous, 'First method in this file'), step('Next method ›', next, 'Last method in this file'));
+  const bar = [group];
+  const where = el('span', 'nav-where');
+  where.append(el('strong', '', index >= 0 ? `${index + 1} of ${siblings.length}` : `${siblings.length} methods`), ' in ' + scope.file);
+  where.title = scope.file;
+  bar.push(where);
+  // The method you came from comes first: "Called by" when it really calls this one, "Back to" when you went the other way.
+  // With no such method, the first caller found in the source.
+  const via = state.stack.at(-1)?.scope, first = callers.find(row => row.id !== id);
+  if (via && via !== id) {
+    const callsThis = callers.some(row => row.id === via);
+    const link = button('', 'nav-primary', () => returnToCaller());
+    link.append(el('span', '', callsThis ? '↑ Called by ' : '← Back to '), el('code', '', scopeName(via)));
+    link.title = callsThis ? 'Go back to the method that called this one' : 'Go back to the method you came from';
+    bar.push(link);
+  } else if (first) {
+    const link = button('', 'nav-primary', () => enterScope(first.id, {destination: 'the caller'}));
+    link.append(el('span', '', '↑ Called by '), el('code', '', first.name));
+    link.title = 'Open the method that calls this one';
+    bar.push(link);
+  }
+  if (isCallable(scope)) {
+    bar.push(navMenu('Called by', callers.filter(row => row.id !== id).map(row => ({
+      name: row.name, place: `${row.file}:${row.callsite.start}`, detail: row.status === 'possible' ? 'probably' : '',
+      possible: row.status === 'possible', open: () => enterScope(row.id, {destination: 'the caller'})})),
+      'Nothing in the analyzed source calls this directly.', callersTotal));
+    const called = callees.items.map(row => ({
+      name: row.name, place: `${row.file}:${row.line}`,
+      detail: `line ${row.callLine}` + (row.status === 'possible' ? ' · probably' : ''),
+      possible: row.status === 'possible', open: () => enterScope(row.id, {destination: 'the caller'})}));
+    bar.push(navMenu('Calls', called, 'No project methods are called here.', callees.total));
+  }
+  host.replaceChildren(...bar);
+  host.hidden = false;
+}
+document.addEventListener('click', event => {
+  document.querySelectorAll('.nav-menu[open]').forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') {
+    const open = document.querySelector('.nav-menu[open]');
+    if (open) { open.open = false; open.querySelector('summary').focus(); event.stopImmediatePropagation(); }
+    return;
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey || event.target.closest?.('input, textarea, select, [contenteditable]')) return;
+  if (!state.scope || $('.workspace').classList.contains('choosing') || !$('#comparisonPanel').hidden) return;
+  if (event.key === ']' && reviewNav.next) { event.preventDefault(); reviewNav.next(); }
+  if (event.key === '[' && reviewNav.previous) { event.preventDefault(); reviewNav.previous(); }
+}, true);

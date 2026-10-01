@@ -1,7 +1,29 @@
 # Changelog
 
-## Unreleased
+## 0.2.0b6 — 2026-09-30
 
+- Restyle the review with a tonal dark design: icon buttons and search in the header, a
+  256px sidebar of view tabs with counts and a status line, and a header card with filters on
+  each start page. Endpoints are grouped by the file that declares them, with verb, async, and
+  effect badges; commands and tasks are cards; modules are cards that open to their methods,
+  each row showing async, routes, parameters, calls, and effects. The method view has a
+  toolbar with the file position, colored summary pills, a code gutter with the definition line
+  marked, and a full-height drawer for tests, callers, and models. Dark is now the default
+  theme; Light and System stay one click away. Geist and JetBrains Mono are used when
+  installed; no font or icon is downloaded.
+- Count a method's project calls once, from the analyzer's own list (including calls inside
+  generators and comprehensions), so the row count, the Calls menu, and the CALLS chips agree.
+  Fix `signature` for decorated functions and classes, and show parameters exactly as declared
+  (keeping `/`, bare `*`, and annotated `*args` and `**kwargs`). Say when a catalog page is
+  capped, and load catalog pages with their requests in parallel.
+  Folders in the sidebar filter the module cards; catalog pages get sort, group-by, and a
+  hover preview; the sidebar is a drawer on narrow windows and arrow keys move through its tree.
+- Show modules as a directory tree in the sidebar that opens level by level, with folder
+  filters above the module cards.
+- Return async, parameters, call count, effects, and routes with `/api/starts` and
+  `/api/modules` rows, in the live server, the VS Code transport, and saved HTML.
+- Add a review bar: previous and next method in the file (also `[` and `]`), a link to the
+  method that led here or its first caller, and Called by and Calls dropdowns.
 - Add a desktop VS Code extension preview with function-at-cursor, workspace, and
   Git-change review; source navigation, stale-snapshot notices, refresh, and HTML
   export. Bundle the analyzer and run it through an isolated Python stdio bridge.

@@ -38,6 +38,9 @@ for source in (ROOT/'example').glob('*.py'): shutil.copyfile(source,fixture_root
 )
 (fixture_root/'test_oo_review.py').write_text('from oo_review import Repo, Service\ndef test_entry_reads_repo():\n    assert Service(Repo()).entry() == 1\n')
 (fixture_root/'dataflow_dashboard.py').write_text((ROOT/'tests'/'fixtures'/'dataflow_dashboard.py').read_text())
+(fixture_root/'pkg'/'sub').mkdir(parents=True)
+(fixture_root/'pkg'/'inner.py').write_text('def inner_one():\n    return 1\ndef inner_two():\n    return inner_one()\n')
+(fixture_root/'pkg'/'sub'/'leaf.py').write_text('def leaf_only():\n    return 0\n')
 (fixture_root/'many_models.py').write_text(
     ''.join(f'class Model{i}:\n    field_{i}: int\n' for i in range(85)) +
     'def use_models():\n    return (' + ', '.join(f'Model{i}' for i in range(85)) + ')\n')
@@ -119,24 +122,27 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             'no_arbitrary_initial_method':js("state.scope===null && workflowState.profile===null && !document.querySelector('#startPage').hidden"),
             'endpoints_default_page':js("catalogPage==='endpoints' && document.querySelector('#startGroups [data-category=http] .start-item')!==null"),
             'methods_separate_from_endpoints':js("document.querySelector('#startGroups [data-category=methods]')===null"),
-            'only_present_verb_tabs':js("[...document.querySelectorAll('.endpoint-tab')].map(b=>b.textContent).join(',')==='All,GET,POST'"),
+            'only_present_verb_tabs':js("[...document.querySelectorAll('.endpoint-tab')].map(b=>b.dataset.method).join(',')==='All,GET,POST'"),
+            'routes_grouped_by_file_with_facts':js("(()=>{const heads=[...document.querySelectorAll('#endpointResults .group-head')];const row=document.querySelector('#endpointResults .route-row');return heads.length>0 && heads.every(h=>h.textContent.includes('route')) && row.querySelector('.badge-verb') && row.querySelector('.route-path').textContent.startsWith('/') && row.querySelector('.route-handler').textContent.endsWith('()')})()"),
+            'view_tabs_show_counts':js("/^[1-9]\\d*$/.test(document.querySelector('#endpointsTab .tab-count').textContent) && /^[1-9]\\d*$/.test(document.querySelector('#methodsTab .tab-count').textContent)"),
+            'sidebar_lists_routers':js("!document.querySelector('#sideTree').hidden && document.querySelectorAll('#sideTree .tree-file').length>=2"),
             'search_always_visible':js("document.querySelector('#search').getBoundingClientRect().height>0"),
             'no_scope_filter':js("document.querySelector('#kindFilter')===null"),
         }
-        # Theme button cycles System -> Light -> Dark; a chosen theme survives a reload.
+        # The page is Dark by default; the button cycles Dark -> Light -> System, and a chosen theme survives a reload.
         body_background="getComputedStyle(document.body).backgroundColor"
-        checks['theme_follows_system_by_default']=js("!document.documentElement.dataset.theme && document.querySelector('#themeButton').textContent==='Theme: System'")
+        checks['theme_dark_by_default']=js(f"document.documentElement.dataset.theme==='dark' && {body_background}==='rgb(15, 20, 27)' && document.querySelector('#themeButton').textContent==='Theme: Dark' && localStorage.getItem('threadline-theme')===null")
         js("document.querySelector('#themeButton').click()")
-        checks['theme_light']=js(f"document.documentElement.dataset.theme==='light' && {body_background}==='rgb(247, 248, 247)'")
-        js("document.querySelector('#themeButton').click()")
-        checks['theme_dark']=js(f"document.documentElement.dataset.theme==='dark' && {body_background}==='rgb(20, 24, 22)' && document.querySelector('#themeButton').textContent==='Theme: Dark'")
+        checks['theme_light']=js(f"document.documentElement.dataset.theme==='light' && {body_background}==='rgb(247, 248, 247)' && document.querySelector('#themeButton').textContent==='Theme: Light'")
         command('Page.reload')
         for _ in range(100):
             time.sleep(.05)
             if js("typeof workflowState!=='undefined' && workflowState.initialized"):break
-        checks['theme_survives_reload']=js(f"document.documentElement.dataset.theme==='dark' && {body_background}==='rgb(20, 24, 22)'")
+        checks['theme_survives_reload']=js(f"document.documentElement.dataset.theme==='light' && {body_background}==='rgb(247, 248, 247)'")
         js("document.querySelector('#themeButton').click()")
-        checks['theme_back_to_system']=js("!document.documentElement.dataset.theme && localStorage.getItem('threadline-theme')===null")
+        checks['theme_follows_system']=js("!document.documentElement.dataset.theme && document.querySelector('#themeButton').textContent==='Theme: System' && localStorage.getItem('threadline-theme')==='system'")
+        js("document.querySelector('#themeButton').click()")
+        checks['theme_back_to_dark']=js("document.documentElement.dataset.theme==='dark' && localStorage.getItem('threadline-theme')===null")
         screenshot=command('Page.captureScreenshot',{'format':'png'})
         (Path(tempfile.gettempdir())/'threadline-workflow-chooser.png').write_bytes(base64.b64decode(screenshot['data']))
         for verb, expected in (('GET','list_tasks'),('POST','create_task')):
@@ -146,21 +152,110 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
                 time.sleep(.02)
             checks[verb+'_filters_endpoints']=js("document.querySelectorAll('#endpointResults .start-item').length===1 && document.querySelector('#endpointResults .start-item').textContent.includes("+json.dumps(expected)+")")
         js("showStartPage('methods')")
-        checks['modules_first_without_methods']=js("document.querySelectorAll('.module-item').length>0 && document.querySelectorAll('#moduleResults [data-scope]').length===0 && state.scope===null")
-        js("document.querySelector('.module-item[data-file=\"api.py\"]').click()")
+        checks['modules_first_without_methods']=js("document.querySelectorAll('.mod-item').length>0 && document.querySelectorAll('#moduleResults [data-scope]').length===0 && state.scope===null")
+        js("document.querySelector('.mod-item[data-file=\"api.py\"] summary').click()")
         for _ in range(100):
             if js("document.querySelector('#moduleResults [data-scope]')!==null"):break
             time.sleep(.02)
-        checks['module_reveals_only_its_methods']=js("[...document.querySelectorAll('#moduleResults .start-item')].every(b=>b.dataset.scope.startsWith('api.py:')) && state.scope===null")
-        js("[...document.querySelectorAll('#moduleResults .start-item')].find(b=>b.textContent.includes('submit_order')).click()")
+        checks['module_reveals_only_its_methods']=js("[...document.querySelectorAll('#moduleResults [data-scope]')].every(b=>b.dataset.scope.startsWith('api.py:')) && state.scope===null")
+        js("[...document.querySelectorAll('#moduleResults [data-scope]')].find(b=>b.textContent.includes('submit_order')).click()")
         for _ in range(100):
             if js("workflowState.profile?.root===state.scope && document.querySelector('#methodName').textContent==='submit_order'"):break
             time.sleep(.02)
         checks['module_method_opens_same_workflow']=js("workflowState.profile.stages.some(s=>s.depth>1) && [...document.querySelectorAll('.workflow-stage-place')].some(p=>p.textContent.startsWith('called at '))")
 
+        def until(expression, tries=250):
+            for _ in range(tries):
+                if js(expression): return True
+                time.sleep(.02)
+            return False
+        # Module cards: the sidebar tree opens a card, and each row shows its parameters and its project calls.
+        js("showStartPage('methods')")
+        until("document.querySelectorAll('.mod-item').length>0")
+        js("document.querySelector('#sideTree .tree-file[data-file=\"service.py\"]').click()")
+        checks['tree_file_opens_its_card']=until("document.querySelector('.mod-item[open]')?.dataset.file==='service.py' && document.querySelector('.mod-item[open] .mod-method') && document.querySelector('#sideTree .tree-file.active')?.dataset.file==='service.py'")
+        checks['module_row_shows_params_and_calls']=js("(()=>{const row=document.querySelector('.mod-item[open] .mod-method');return row.querySelector('.mm-params').textContent.includes('repository, notifier') && /^calls: [1-9]/.test(row.querySelector('.mm-meta').textContent)})()")
+        calls_in_row=js("Number(document.querySelector('.mod-item[open] .mm-meta [title^=\"Project methods\"]').textContent.split(': ')[1])")
+        js("document.querySelector('.mod-item[open] .mod-method').click()")
+        until("document.querySelector('#methodName').textContent==='place_order' && document.querySelector('#reviewNav .nav-menu[data-kind=calls]')!==null")
+        checks['row_calls_match_the_calls_menu']=js("Number(document.querySelector('#reviewNav .nav-menu[data-kind=calls] .nav-count').textContent)==="+str(calls_in_row)+" && "+str(calls_in_row)+">0 && document.querySelectorAll('#cfSummary [data-kind=calls] .cf-chip').length>="+str(calls_in_row))
+        # Folders: opening one in the sidebar shows only its modules; Show all lifts the filter.
+        js("showStartPage('methods')")
+        until("document.querySelectorAll('.mod-item').length>2")
+        js("[...document.querySelectorAll('#sideTree .tree-dir summary')].find(s=>s.textContent.startsWith('sub')).click()")
+        checks['folder_click_filters_cards']=until("document.querySelectorAll('.mod-item').length===1 && document.querySelector('.mod-item').dataset.file==='pkg/sub/leaf.py' && !document.querySelector('.folder-note').hidden")
+        js("document.querySelector('.folder-note button').click()")
+        checks['show_all_clears_the_folder_filter']=until("document.querySelectorAll('.mod-item').length>2 && document.querySelector('.folder-note').hidden")
+        js("const sort=document.querySelector('.catalog-select select');sort.value='methods';sort.dispatchEvent(new Event('change'))")
+        checks['sort_modules_by_most_methods']=until("document.querySelector('.mod-item').dataset.file==='large.py'")
+        # Endpoints: grouping, the row cap notice, and the preview beside the list.
+        js("showStartPage('endpoints')")
+        until("document.querySelector('.route-row')!==null")
+        js("const group=document.querySelector('.catalog-select select');group.value='verb';group.dispatchEvent(new Event('change'))")
+        checks['group_routes_by_verb']=until("document.querySelectorAll('#endpointResults .group-head .badge-verb').length>=2")
+        js("catalogCap=1;showStartPage('endpoints')")
+        checks['row_cap_is_announced']=until("document.querySelector('[data-category=http] .catalog-note')?.textContent.includes('first 1 of')")
+        js("catalogCap=2000;showStartPage('endpoints')")
+        until("document.querySelector('.route-row')!==null")
+        checks['inspector_starts_with_counts']=until("document.querySelector('#startInspector .insp-stat-value')!==null")
+        js("document.querySelector('.route-row').dispatchEvent(new MouseEvent('mouseenter'))")
+        checks['hover_previews_the_route']=until("document.querySelector('#startInspector .insp-name')?.textContent.includes(document.querySelector('.route-row .route-path').textContent) && document.querySelector('#startInspector .insp-open')!==null && document.querySelector('#startInspector').textContent.includes('Linked tests')")
+        js("document.querySelector('#startInspector .insp-open').click()")
+        checks['preview_opens_the_review']=until("state.scope!==null && workflowState.profile?.root===state.scope")
+        js("showStartPage('commands')")
+        until("document.querySelector('.command-card')!==null")
+        checks['commands_are_cards']=js("document.querySelectorAll('[data-category=commands] .command-card').length>0 && document.querySelector('.command-card .command-title').textContent.length>0 && document.querySelector('.command-card .card-open svg')!==null")
+        # Details found in review: verbs in any order, a missing callee list, and a Called by total past the rows shown.
+        checks['route_path_ignores_verb_order']=js("routePath({label:'POST, GET /items',httpMethods:['GET','POST']})==='/items' && routePath({label:'GET /a',httpMethods:['GET']})==='/a'")
+        checks['callees_fall_back_to_flow_calls']=js("(()=>{const call={details:{targets:['t:1'],callStatus:'possible'},span:{start:7},label:'call helper',expression:'helper()'};const result=calleesFrom({callers:{items:[],total:0}},[call],'self');return result.total===1 && result.items[0].name==='helper' && result.items[0].callLine===7 && result.items[0].status==='possible' && calleesFrom({callees:{items:[],total:0}},[call],'self').total===0})()")
+        checks['called_by_menu_shows_the_real_total']=js("(()=>{const menu=navMenu('Called by',[{name:'a',place:'p',detail:'',open(){}}],'none',250);return menu.querySelector('.nav-count').textContent==='250' && menu.textContent.includes('+249 more')})()")
+        # The review bar: position in the file, next and previous, the bracket keys, callers, and the way back.
+        js("showStartPage('methods')")
+        until("document.querySelectorAll('.mod-item').length>0")
+        js("document.querySelector('#sideTree .tree-file[data-file=\"helpers.py\"]').click()")
+        until("document.querySelector('.mod-item[open] .mod-method')!==null")
+        js("document.querySelector('.mod-item[open] .mod-method').click()")
+        until("document.querySelector('#methodName').textContent==='clean_email' && document.querySelector('#reviewNav .nav-where')!==null")
+        checks['review_bar_shows_position']=js("document.querySelector('#reviewNav .nav-where').textContent.startsWith('1 of 2 in helpers.py') && document.querySelector('#reviewNav .nav-step').disabled")
+        js("[...document.querySelectorAll('#reviewNav .nav-step')][1].click()")
+        checks['next_method_in_the_file']=until("document.querySelector('#methodName').textContent==='calculate_total' && document.querySelector('#reviewNav .nav-where').textContent.startsWith('2 of 2') && [...document.querySelectorAll('#reviewNav .nav-step')][1].disabled")
+        js("document.body.focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'[',bubbles:true}))")
+        checks['bracket_keys_step_through_the_file']=until("document.querySelector('#methodName').textContent==='clean_email' && document.querySelector('#reviewNav .nav-where')?.textContent.startsWith('1 of 2')")
+        js("document.dispatchEvent(new KeyboardEvent('keydown',{key:']',bubbles:true}))")
+        until("document.querySelector('#methodName').textContent==='calculate_total' && document.querySelector('#reviewNav .nav-where')?.textContent.startsWith('2 of 2') && document.querySelector('#reviewNav .nav-primary')!==null")
+        checks['primary_link_names_the_first_caller']=js("document.querySelector('#reviewNav .nav-primary').textContent.includes('place_order') && state.stack.length===0")
+        js("document.querySelector('#reviewNav .nav-menu[data-kind=called-by] summary').click()")
+        checks['called_by_menu_lists_callers']=until("document.querySelector('#reviewNav .nav-menu[open] .cf-row-name')?.textContent==='place_order'")
+        js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+        checks['escape_closes_the_menu']=js("document.querySelector('#reviewNav .nav-menu[open]')===null")
+        js("document.querySelector('#reviewNav .nav-menu[data-kind=called-by] summary').click();document.querySelector('#reviewNav .nav-menu[open] .cf-row').click()")
+        checks['called_by_menu_opens_the_caller']=until("document.querySelector('#methodName').textContent==='place_order' && state.stack.length===1")
+        until("document.querySelector('#reviewNav .nav-primary')?.textContent.includes('calculate_total')")
+        checks['back_link_does_not_claim_a_caller']=js("document.querySelector('#reviewNav .nav-primary').textContent.startsWith('← Back to')")
+        js("document.querySelector('#reviewNav .nav-primary').click()")
+        checks['primary_link_goes_back']=until("document.querySelector('#methodName').textContent==='calculate_total' && state.stack.length===0")
+        # Narrow window: the sidebar is a drawer, closed to start, closed again by a choice or Escape.
+        command('Emulation.setDeviceMetricsOverride',{'width':390,'height':850,'deviceScaleFactor':1,'mobile':True})
+        checks['narrow_sidebar_starts_closed']=until("document.querySelector('.workspace').classList.contains('sidebar-collapsed')")
+        js("document.querySelector('#sidebarToggle').click()")
+        checks['narrow_sidebar_is_a_drawer']=until("(()=>{const nav=document.querySelector('#repositoryNavigator'),box=nav.getBoundingClientRect();return getComputedStyle(nav).position==='fixed' && box.width>200 && box.width<=351 && box.height>300 && document.documentElement.scrollWidth<=innerWidth})()")
+        js("document.querySelector('#commandsTab').click()")
+        checks['narrow_drawer_closes_on_a_choice']=until("document.querySelector('.workspace').classList.contains('sidebar-collapsed') && catalogPage==='commands'")
+        js("document.querySelector('#sidebarToggle').click()")
+        js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+        checks['narrow_drawer_closes_on_escape']=js("document.querySelector('.workspace').classList.contains('sidebar-collapsed')")
+        # Search results appear in the sidebar, so searching opens the drawer; the header is not outside it.
+        js("const box=document.querySelector('#search');box.value='place';box.dispatchEvent(new Event('input'))")
+        checks['narrow_search_opens_the_drawer_with_results']=until("!document.querySelector('.workspace').classList.contains('sidebar-collapsed') && document.querySelectorAll('#navigation .start-item').length>0 && document.querySelector('#repositoryNavigator').getBoundingClientRect().width>200")
+        js("document.querySelector('#search').click()")
+        checks['clicking_search_keeps_the_drawer_open']=js("!document.querySelector('.workspace').classList.contains('sidebar-collapsed')")
+        js("document.querySelector('#navigation .start-item').click()")
+        checks['choosing_a_result_closes_the_drawer']=until("document.querySelector('.workspace').classList.contains('sidebar-collapsed') && state.scope!==null")
+        command('Emulation.setDeviceMetricsOverride',{'width':1280,'height':900,'deviceScaleFactor':1,'mobile':False})
+        js("if(sidebarCollapsed)document.querySelector('#sidebarToggle').click()")
         for category, page, expected in (('http','endpoints','list_tasks'),('commands','commands','main')):
             js("showStartPage("+json.dumps(page)+")")
-            js("document.querySelector('#startGroups [data-category="+category+"] .start-item').click()")
+            js("[...document.querySelectorAll('#startGroups [data-category="+category+"] .start-item')].find(item=>item.textContent.includes("+json.dumps(expected)+")).click()")
             for _ in range(100):
                 if js("workflowState.profile?.root===state.scope && document.querySelector('#methodName').textContent==="+json.dumps(expected)):break
                 time.sleep(.02)
@@ -347,7 +442,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         js("(async()=>{const rows=await api('/api/symbols',{q:'Repo.get',snapshot:model.snapshotId});await chooseScope(rows.symbols.items.find(s=>s.qualified==='Repo.get').id);})()")
         wait_for("document.querySelector('#cfTests .cf-row')!==null && document.querySelector('#cfCallers .cf-row')!==null")
         checks['one_review_view']=js("document.querySelector('#methodTabs')===null && document.querySelector('.source-panel')===null && document.querySelector('#dataflowPanel')===null && !document.querySelector('#codeFirst').hidden")
-        checks['tests_count_and_summary']=js("document.querySelector('#cfTests h2').textContent==='Tests · 1' && document.querySelector('#cfSummary').textContent.includes('Returns')")
+        checks['tests_count_and_summary']=js("document.querySelector('#cfTests h2').textContent==='Tests 1' && document.querySelector('#cfTests h2 .cf-count').textContent==='1' && document.querySelector('#cfSummary').textContent.includes('Returns')")
         checks['method_source_bounded']=js("document.querySelector('#cfCode').textContent.includes('def get') && !document.querySelector('#cfCode').textContent.includes('class Service')")
         checks['related_test_listed_with_reason']=js("document.querySelector('#cfTests .cf-row').textContent.includes('test_entry_reads_repo') && document.querySelector('#cfTests').textContent.includes('through Service.entry')")
         js("document.querySelector('#cfTests .cf-row').click()")

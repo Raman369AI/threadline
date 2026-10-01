@@ -102,3 +102,15 @@ def callers(model, index, symbol_id):
         rows[caller] = {'id': caller, 'name': scope['qualified'], 'file': scope['file'], 'line': scope['span']['start'],
                         'span': scope['span'], 'status': call['status'], 'callsite': call['span'], 'reason': call['reason']}
     return sorted(rows.values(), key=lambda row: (row['status'] != 'supported', row['file'], row['line']))
+
+
+def callees(model, scope):
+    """The project methods a method calls, in source order: what the review's Calls list shows."""
+    scopes, rows = model['scopes'], []
+    for entry in scope.get('callees', []):
+        target = scopes.get(entry['id'])
+        if target is None:
+            continue
+        rows.append({'id': target['id'], 'name': target['qualified'], 'file': target['file'], 'line': target['span']['start'],
+                     'span': target['span'], 'callLine': entry['line'], 'status': entry['status']})
+    return rows

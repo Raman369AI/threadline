@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0b7 — 2026-09-30
 
 - Keep the view tabs on screen above the page on a narrow window or panel, with the rest of the
   sidebar in the drawer, and size the method heading for narrow columns.

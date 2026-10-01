@@ -2,7 +2,7 @@
 
 ## 0.2.0
 
-- Bundle the analyzer and review from Threadline 0.2.0b6, plus its narrow-panel layout fixes: a tonal dark design that follows your VS Code theme,
+- Bundle the analyzer and review from Threadline 0.2.0b7: a tonal dark design that follows your VS Code theme,
   endpoints grouped by file, command and task cards, a module browser with a folder tree, previous and next
   method in the file, and Called by and Calls menus whose counts agree with the method summary.
 - Show a **Threadline** item in the status bar whenever a Python file is active, so a review is one click

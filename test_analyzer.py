@@ -34,6 +34,63 @@ class AnalyzerTests(unittest.TestCase):
             self.assertEqual(result['files']['source.py']['source'],original.decode())
             self.assertEqual(self.scope(result,'value')['output']['returns'],['1'])
 
+    def test_signature_is_the_declaration_not_its_first_decorator(self):
+        _, result = self.inspect({'decorated.py': (
+            'import functools\n'
+            '@functools.cache\n@functools.wraps(len)\n'
+            'async def handler(request: int, *rest, flag: bool = False, **extra) -> str:\n    return ""\n'
+            '@functools.total_ordering\nclass Case(dict, metaclass=type):\n    def method(self, value):\n        return value\n')})
+        self.assertEqual(self.scope(result, 'handler')['signature'],
+                         'async def handler(request: int, *rest, flag: bool=False, **extra) -> str:')
+        self.assertEqual(self.scope(result, 'Case')['signature'], 'class Case(dict, metaclass=type):')
+        self.assertEqual(self.scope(result, 'Case.method')['signature'], 'def method(self, value):')
+
+    def test_parameter_text_keeps_separators_annotations_and_drops_self(self):
+        _, result = self.inspect({'params.py': (
+            'def f(a, /, b, *, key: int = 0, **kw: str) -> bool:\n    return True\n'
+            'def g(*args: int, flag=None):\n    return args\n'
+            'class Box:\n'
+            '    def method(self, value: int = 1) -> int:\n        return value\n'
+            '    @classmethod\n    def make(cls, *rest):\n        return cls\n'
+            'pick = lambda item, other=2: item\n')})
+        text = lambda name: self.scope(result, name)['paramText']
+        self.assertEqual(text('f'), '(a, /, b, *, key: int=0, **kw: str) -> bool')
+        self.assertEqual(text('g'), '(*args: int, flag=None)')
+        self.assertEqual(text('Box.method'), '(value: int=1) -> int')
+        self.assertEqual(text('Box.make'), '(*rest)')
+        lam = next(s for s in result['scopes'].values() if s['kind'] == 'lambda')
+        self.assertEqual(lam['paramText'], '(item, other=2)')
+
+    def test_project_calls_count_distinct_project_methods_only(self):
+        _, result = self.inspect({'calls.py': (
+            'import json\n'
+            'def leaf():\n    return 1\n'
+            'def other():\n    return 2\n'
+            'def caller(value):\n'
+            '    leaf()\n    leaf()\n    other()\n    json.dumps(value)\n    len(value)\n    return caller\n'
+            'def recursive():\n    recursive()\n    return 1\n'
+            'def dead():\n    return 0\n    leaf()\n')})
+        stats = lambda name: self.scope(result, name)['stats']
+        # Five call sites, but two project methods: leaf (twice) and other. json and len are library calls.
+        self.assertEqual((stats('caller')['calls'], stats('caller')['projectCalls']), (5, 2))
+        self.assertEqual(stats('recursive')['projectCalls'], 0)
+        self.assertEqual(stats('dead')['projectCalls'], 0)
+
+    def test_callees_include_calls_made_inside_generators_and_list_the_first_line(self):
+        _, result = self.inspect({'lazy.py': (
+            'def has(task):\n    return task\n'
+            'def early():\n    return 1\n'
+            'def board(tasks):\n'
+            '    early()\n'
+            '    first = next((task for task in tasks if not has(task)), None)\n'
+            '    again = [has(task) for task in tasks]\n'
+            '    return first, again, early()\n')})
+        board = self.scope(result, 'board')
+        names = lambda entries: [(result['scopes'][entry['id']]['qualified'], entry['line'], entry['status']) for entry in entries]
+        # early is called on line 6 and again on 9; has is only called inside a generator and a comprehension.
+        self.assertEqual(names(board['callees']), [('early', 6, 'supported'), ('has', 7, 'supported')])
+        self.assertEqual(board['stats']['projectCalls'], 2)
+
     def test_syntax_error_names_the_parsing_python(self):
         import sys
         _, result = self.inspect({'modern.py': 'try:\n    pass\nexcept ValueError, TypeError:\n    pass\n'})

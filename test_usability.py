@@ -69,7 +69,7 @@ class ReviewStartTests(unittest.TestCase):
         saved = json.loads(subprocess.run(['node', '-e', script], capture_output=True, text=True, check=True).stdout)
         live = [self.store.starts(limit=20, **{'query' if key == 'q' else key: value for key, value in params.items()})
                 if path == '/api/starts' else self.store.modules(limit=20, **params) for path, params in queries]
-        order = lambda result: [(row.get('id'), row.get('label'), row['file'])
+        order = lambda result: [(row.get('id'), row.get('label'), row['file'], row.get('async'), row.get('params'), row.get('calls'), row.get('effects'), row.get('routes'), row.get('total'))
                                 for row in (result.get('results') or result.get('modules') or result['methods'])['items']]
         for (path, params), expected, actual in zip(queries, live, saved):
             with self.subTest(path=path, params=params):

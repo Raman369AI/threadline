@@ -1,8 +1,17 @@
 body {
   --sans:var(--vscode-font-family); --mono:var(--vscode-editor-font-family);
-  --paper:var(--vscode-editor-background); --bg:var(--vscode-sideBar-background, var(--vscode-editor-background));
-  --paper-soft:var(--vscode-editor-background); --ink:var(--vscode-editor-foreground);
-  --ink-strong:var(--vscode-editor-foreground); --code-ink:var(--vscode-editor-foreground);
+  --bg:var(--vscode-editor-background);
+  /* Surfaces are tonal steps of the editor foreground, so cards read without borders in any theme. */
+  --paper-soft:color-mix(in srgb, var(--vscode-editor-foreground) 4%, var(--vscode-editor-background));
+  --paper:color-mix(in srgb, var(--vscode-editor-foreground) 7%, var(--vscode-editor-background));
+  --muted-bg:color-mix(in srgb, var(--vscode-editor-foreground) 12%, var(--vscode-editor-background));
+  --hover:var(--muted-bg);
+  --side-bg:var(--vscode-sideBar-background, var(--vscode-editor-background));
+  --bar-bg:var(--vscode-titleBar-activeBackground, var(--vscode-sideBar-background, var(--vscode-editor-background)));
+  --code-bg:var(--vscode-editor-background);
+  --gutter-bg:var(--vscode-editorGutter-background, var(--vscode-editor-background));
+  --gutter-ink:var(--vscode-editorLineNumber-foreground, var(--vscode-descriptionForeground));
+  --ink:var(--vscode-editor-foreground); --ink-strong:var(--vscode-editor-foreground); --code-ink:var(--vscode-editor-foreground);
   --focus:var(--vscode-focusBorder); --line:var(--vscode-panel-border, #7775);
 }
 body { padding:0; height:100dvh; display:flex; flex-direction:column; overflow:hidden; }

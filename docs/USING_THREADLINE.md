@@ -16,7 +16,7 @@ python3 -m venv .venv
 
 To update an existing installation, run `.venv/bin/python -m pip install --upgrade --pre threadline-review`.
 
-The last command prints and opens a local address, normally <http://127.0.0.1:4173/>. Use **Endpoints**, **Commands & tasks**, or **Modules & methods**. The search box finds items across all three pages. Endpoints has tabs for the HTTP verbs found in the repository. Choose a module to see its functions and methods; filter within that module, then select a method to open the existing workflow. Supported calls into other modules show the caller and target module names. The first page defaults to Endpoints when routes exist, then Commands & tasks, then Modules & methods. No method is selected automatically. One click opens the selected workflow and method. Route paths reflect declarations in source; runtime mounts and registration may add prefixes. Select a step to open the exact source while the surrounding flow remains visible.
+The last command prints and opens a local address, normally <http://127.0.0.1:4173/>. Use **Endpoints**, **Commands & tasks**, or **Modules & methods**. The search box finds items across all three pages. Endpoints has tabs for the HTTP verbs found in the repository, and the sidebar lists the routers. Modules & methods shows a directory tree in the sidebar; choose a module to see its functions and methods with their parameters, calls, and effects, then select a method to open the existing workflow. Supported calls into other modules show the caller and target module names. The first page defaults to Endpoints when routes exist, then Commands & tasks, then Modules & methods. No method is selected automatically. One click opens the selected workflow and method. Route paths reflect declarations in source; runtime mounts and registration may add prefixes. Select a step to open the exact source while the surrounding flow remains visible.
 
 ## Install from a source checkout
 
@@ -68,7 +68,7 @@ They install and run it locally:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install threadline_review-0.2.0b5-py3-none-any.whl
+.venv/bin/python -m pip install threadline_review-0.2.0b6-py3-none-any.whl
 .venv/bin/threadline review /path/to/python-repository
 ```
 

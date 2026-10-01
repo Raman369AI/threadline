@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import hashlib
 import io
 import stat
@@ -118,6 +119,33 @@ def text(node):
         return ast.unparse(node)
     except Exception:
         return type(node).__name__
+
+
+def parameter_text(node):
+    """Parameters and return annotation as declared, without self or cls: '(a, /, b, *, key: int=0, **kw: str) -> Page'."""
+    args = getattr(node, 'args', None)
+    if args is None:
+        return ''
+    args = copy.copy(args)
+    args.posonlyargs, args.args, args.defaults = list(args.posonlyargs), list(args.args), list(args.defaults)
+    positional = args.posonlyargs or args.args
+    if positional and positional[0].arg in ('self', 'cls') and getattr(node, 'name', None) is not None:
+        positional.pop(0)
+        if len(args.defaults) > len(args.posonlyargs) + len(args.args):
+            args.defaults.pop(0)
+    returns = getattr(node, 'returns', None)
+    return '(' + text(args) + ')' + (' -> ' + text(returns) if returns else '')
+
+
+def declaration(node):
+    """The declaration line without its decorators: 'async def f(a, b=1) -> int:' or 'class C(Base):'."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        head = ('async def ' if isinstance(node, ast.AsyncFunctionDef) else 'def ') + node.name + '(' + text(node.args) + ')'
+        return head + (' -> ' + text(node.returns) if node.returns else '') + ':'
+    if isinstance(node, ast.ClassDef):
+        bases = [text(base) for base in node.bases] + [f'{keyword.arg}={text(keyword.value)}' if keyword.arg else '**' + text(keyword.value) for keyword in node.keywords]
+        return f'class {node.name}' + (f"({', '.join(bases)})" if bases else '') + ':'
+    return text(node).split('\n')[0]
 
 
 class Analyzer:
@@ -279,8 +307,8 @@ class Analyzer:
             if args.kwarg:
                 params.append({'name': args.kwarg.arg, 'kind': 'kwargs', 'default': None})
         scope = {'id': scope_id, 'symbolKey': f'{module}:{qualified}:{kind}', 'file': file, 'name': name, 'qualified': qualified, 'module': module, 'kind': kind,
-                 'parent': parent['id'] if parent else None, 'span': span, 'params': params, 'async': isinstance(node, ast.AsyncFunctionDef), 'generator': False,
-                 'signature': short(text(node).split('\n')[0], 240), 'decorators': decorators, 'symbols': {}, 'imports': {}, 'flow': []}
+                 'parent': parent['id'] if parent else None, 'span': span, 'params': params, 'paramText': parameter_text(node), 'async': isinstance(node, ast.AsyncFunctionDef), 'generator': False,
+                 'signature': short(declaration(node), 240), 'decorators': decorators, 'symbols': {}, 'imports': {}, 'flow': []}
         def own_yield(current):
             for child in ast.iter_child_nodes(current):
                 if isinstance(child, (ast.Yield, ast.YieldFrom)):
@@ -1436,7 +1464,20 @@ class Analyzer:
             if time.monotonic() - self.started > MAX_ANALYSIS_SECONDS:
                 raise AnalysisLimitError('Analysis time budget exceeded; narrow --source-root')
             own_calls = calls_by_scope[scope['id']]
-            scope['stats'] = {'calls': len(own_calls), 'unresolved': sum(c['status'] == 'unknown' for c in own_calls), 'branches': sum(len(n['branches']) + len(n['decisions']) for n in self.walk_flow(scope['flow']))}
+            # Distinct project methods this scope calls, in source order, with the first line each is called on.
+            # A call counts for its likely target, the first of its targets, as the code view links it; the other
+            # candidates of a 'possible' call are not counted.
+            # Calls inside generator expressions and comprehensions count: the scope makes them, if lazily.
+            callees = {}
+            for call in sorted(own_calls, key=lambda call: (call['span']['start'], call['span'].get('col', 0))):
+                target = call['targets'][0] if call['targets'] else None
+                if call['status'] not in ('supported', 'possible') or not target or call['unreachable'] or target == scope['id']:
+                    continue
+                entry = callees.setdefault(target, {'id': target, 'line': call['span']['start'], 'status': call['status']})
+                if call['status'] == 'supported':
+                    entry['status'] = 'supported'
+            scope['callees'] = list(callees.values())
+            scope['stats'] = {'calls': len(own_calls), 'projectCalls': len(scope['callees']), 'unresolved': sum(c['status'] == 'unknown' for c in own_calls), 'branches': sum(len(n['branches']) + len(n['decisions']) for n in self.walk_flow(scope['flow']))}
             scope['callers'] = list(callers_by_target[scope['id']])
             scope.pop('symbols')
             scope.pop('imports')

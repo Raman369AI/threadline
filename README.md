@@ -80,7 +80,7 @@ and standalone HTML export. It requires VS Code 1.95+ and Python 3.12+. See the
 | **☰** (top left) | Hides or shows the sidebar to give the code the full width. |
 | **Divider** between the code and the side pane | Drag to resize, or focus it and use the arrow keys; double-click or Enter resets it. |
 | **Instructions** (bottom right) | How to read the review, keyboard shortcuts, and source **Coverage**. |
-| **Theme** (top right) | Follows the system light or dark setting, or switch to Light or Dark. |
+| **Theme** (top right) | Dark by default; switch to Light, or to System to follow the operating system setting. |
 
 The width and theme are remembered in your browser.
 
@@ -88,9 +88,9 @@ The width and theme are remembered in your browser.
 
 | Page | How to use it |
 | --- | --- |
-| **Endpoints** | Pick an HTTP verb tab, such as GET or POST, then an endpoint. |
+| **Endpoints** | Filter by HTTP verb or text, or by router file in the sidebar; routes are grouped by file. Select one to open it. |
 | **Commands & tasks** | Select a CLI command or background task. Test modules you can run with `python -m` are folded into their own group. |
-| **Modules & methods** | Pick a module, filter its methods, then select one. |
+| **Modules & methods** | Open folders in the sidebar tree or filter the module cards, open a module, then select one of its methods. |
 
 Search is available across all three pages. Each link points to source evidence. Unresolved sources and effects remain
 visible as gaps rather than invented values. The [usage guide](https://github.com/Raman369AI/threadline/blob/main/docs/USING_THREADLINE.md)

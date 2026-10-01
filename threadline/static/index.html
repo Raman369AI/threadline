@@ -9,12 +9,13 @@
 <a href="#reviewWorkspace" class="skip-link">Skip to review</a>
 <header class="topbar">
   <button id="sidebarToggle" class="menu-button" type="button" aria-expanded="true" aria-controls="repositoryNavigator" aria-label="Hide sidebar" title="Hide sidebar"><svg aria-hidden="true" viewBox="0 0 20 20" width="20" height="20"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
-  <a class="brand" href="#" aria-label="Threadline home"><span class="brand-icon" aria-hidden="true">↳</span> threadline</a>
+  <a class="brand" href="#" aria-label="Threadline home"><svg class="brand-icon" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg><span class="brand-name">threadline</span></a>
   <span class="top-divider"></span><span id="projectName">Loading source…</span>
+  <label class="search-wrap"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input id="search" type="search" placeholder="Route, command, or method…" aria-label="Search routes, commands, and methods"><kbd>/</kbd></label>
   <button id="analysisStatus" class="analysis-status" aria-controls="helpPanel" hidden></button>
   <span class="top-spacer"></span>
-  <button id="themeButton" class="quiet-button" type="button">Theme: System</button>
-  <button id="refreshButton" class="quiet-button" title="Read the current files again">↻ Refresh source</button>
+  <button id="refreshButton" class="icon-button" type="button" title="Read the current files again"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h.6m15.4 2A8 8 0 004.6 9m0 0H9m11 11v-5h-.6m0 0A8 8 0 014.1 13m15.3 2H15"/></svg><span class="sr-only">Refresh source</span></button>
+  <button id="themeButton" class="icon-button" type="button"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/></svg><span class="sr-only">Theme: Dark</span></button>
 </header>
 <section id="helpPanel" class="coverage-panel help-panel" tabindex="-1" role="region" aria-labelledby="instructionsTitle" hidden>
   <div class="help-heading"><h2 id="instructionsTitle">Instructions</h2><button id="helpClose" class="quiet-button" type="button" aria-label="Close instructions">Close</button></div>
@@ -50,29 +51,42 @@
 <div id="reviewError" class="review-error error" role="region" aria-label="Review error" hidden></div>
 <main id="reviewWorkspace" class="workspace" tabindex="-1" aria-label="Review workspace">
   <aside id="repositoryNavigator" class="navigator" aria-label="Repository navigator">
-    <label class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Route, command, or method…" aria-label="Search routes, commands, and methods"><kbd>/</kbd></label>
-    <div class="view-tabs" role="group" aria-label="Review view"><button id="endpointsTab" aria-pressed="false">Endpoints</button><button id="commandsTab" aria-pressed="false">Commands &amp; tasks</button><button id="methodsTab" aria-pressed="false">Modules &amp; methods</button><button id="workflowTab" aria-pressed="false" hidden>Current workflow</button><button id="changesTab" aria-pressed="false" hidden>Changes</button></div>
+    <p class="nav-label">Navigation views</p>
+    <div class="view-tabs" role="group" aria-label="Review view"><button id="endpointsTab" aria-pressed="false"><span class="tab-label">Endpoints</span><span class="tab-count"></span></button><button id="commandsTab" aria-pressed="false"><span class="tab-label">Commands &amp; tasks</span><span class="tab-count"></span></button><button id="methodsTab" aria-pressed="false"><span class="tab-label">Modules &amp; methods</span><span class="tab-count"></span></button><button id="workflowTab" aria-pressed="false" hidden><span class="tab-label">Current workflow</span><span class="tab-state">IDLE</span></button><button id="changesTab" aria-pressed="false" hidden><span class="tab-label">Changes</span></button></div>
+    <section id="sideTree" class="side-tree" aria-label="Browse" hidden></section>
     <section id="changesBrowser" hidden aria-label="Git changes"></section>
     <section id="workflowBrowser" hidden aria-label="Workflow overview"></section>
     <div id="repositoryBrowser"><div id="navigation" class="nav-tree"></div></div>
+    <div id="sideFooter" class="side-footer"></div>
   </aside>
   <section id="startPage" class="start-page" hidden>
-    <div class="start-heading"><p id="startProject" class="section-label"></p><h1 id="startTitle">Where do you want to start?</h1><p id="startHint">Choose a route, command, or method. Its workflow and original code open together.</p></div>
-    <div id="startGroups" class="start-groups"></div>
+    <div class="catalog-main">
+      <div class="catalog-head">
+        <p id="startProject" class="section-label"></p>
+        <div class="catalog-titlerow"><h1 id="startTitle">Where do you want to start?</h1><span id="startRoot" class="catalog-root" hidden></span></div>
+        <p id="startHint">Choose a route, command, or method. Its workflow and original code open together.</p>
+        <div id="startControls" class="catalog-controls"></div>
+      </div>
+      <div id="startGroups" class="start-groups"></div>
+    </div>
+    <aside id="startInspector" class="catalog-inspector" aria-label="Preview of the selected item"></aside>
   </section>
   <section class="review">
     <div id="baselineNotice" class="baseline-notice" hidden></div>
-    <nav id="pathBar" class="path-bar caller-strip" aria-label="Path from the first method" hidden></nav>
-    <section id="workflowContext" hidden aria-label="Selected call"></section>
-    <div class="review-heading">
-      <h1 id="scopeTitle" class="method-title"><code id="methodName" class="method-name">Reading the repository</code></h1>
-      <p id="methodWhere" class="method-where"></p>
-    </div>
     <section id="codeFirst" class="code-first" aria-label="Method review">
-      <div id="cfSummary" class="cf-summary" role="group" aria-label="Method summary"></div>
-      <p class="cf-hint">Select a name to highlight its uses. Select an underlined call, a test, or a caller to open it beside the code.</p>
       <div class="cf-body">
-        <div id="cfCode" class="code-window cf-code wrap-code" role="region" tabindex="0" aria-label="Method source"></div>
+        <div class="cf-main">
+          <nav id="reviewNav" class="review-nav" aria-label="Move through the file" hidden></nav>
+          <nav id="pathBar" class="path-bar caller-strip" aria-label="Path from the first method" hidden></nav>
+          <section id="workflowContext" hidden aria-label="Selected call"></section>
+          <div class="review-heading">
+            <h1 id="scopeTitle" class="method-title"><code id="methodName" class="method-name">Reading the repository</code></h1>
+            <p id="methodWhere" class="method-where"></p>
+          </div>
+          <div id="cfSummary" class="cf-summary" role="group" aria-label="Method summary"></div>
+          <p class="cf-hint">Select a name to highlight its uses. Select an underlined call, a test, or a caller to open it beside the code.</p>
+          <div id="cfCode" class="code-window cf-code wrap-code" role="region" tabindex="0" aria-label="Method source"></div>
+        </div>
         <div id="cfSplitter" class="cf-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="cfCode" aria-label="Code pane width" aria-valuemin="30" aria-valuemax="80" aria-valuenow="60" title="Drag to resize; double-click to reset"></div>
         <aside id="cfContext" class="cf-context" aria-label="Opened code, tests, callers, and models"></aside>
       </div>

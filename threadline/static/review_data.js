@@ -201,11 +201,40 @@ async function boundedMethodLines(id, snapshot = model.snapshotId) {
     rows
   };
 }
-$('#sidebarToggle').addEventListener('click', () => {
-  sidebarCollapsed = !sidebarCollapsed;
+// On a narrow window the sidebar is a drawer over the page: closed to start, closed again by a choice made in it,
+// a click outside it, or Escape. On a wide window it sits beside the page as before.
+// Narrow is measured on the same box the stylesheet's container query measures (the page body), so the two agree
+// whatever the scrollbar or zoom does to the viewport. It is measured when asked, never remembered.
+const isNarrow = () => document.body.clientWidth <= 900;
+let sidebarWideCollapsed = false;   // the choice made on a wide window, restored when the window widens again
+function setSidebar(collapsed, announceChange = true) {
+  sidebarCollapsed = collapsed;
+  if (!isNarrow()) sidebarWideCollapsed = collapsed;
   $('.workspace').classList.toggle('sidebar-collapsed', sidebarCollapsed);
   const label = sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar';
   $('#sidebarToggle').setAttribute('aria-label', label); $('#sidebarToggle').title = label;
   $('#sidebarToggle').setAttribute('aria-expanded', String(!sidebarCollapsed));
-  announce(sidebarCollapsed ? 'Sidebar hidden.' : 'Sidebar shown.');
+  if (announceChange) announce(sidebarCollapsed ? 'Sidebar hidden.' : 'Sidebar shown.');
+}
+$('#sidebarToggle').addEventListener('click', () => setSidebar(!sidebarCollapsed));
+if (isNarrow()) setSidebar(true, false);
+let wasNarrow = isNarrow();
+new ResizeObserver(() => {
+  const narrow = isNarrow();
+  if (narrow === wasNarrow) return;
+  wasNarrow = narrow;
+  setSidebar(narrow ? true : sidebarWideCollapsed, false);
+}).observe(document.body);
+// What counts as a choice in the drawer: a view, a file, a search result, or a step of the call map.
+const drawerChoice = '.view-tabs button, .tree-file, .start-item, .workflow-stage';
+document.addEventListener('click', event => {
+  if (!isNarrow() || sidebarCollapsed || event.target.closest('#sidebarToggle')) return;
+  // The header, including the search box whose results fill the drawer, is not "outside".
+  if (event.target.closest('.topbar')) return;
+  if (!$('#repositoryNavigator').contains(event.target)) { setSidebar(true); return; }
+  if (event.target.closest(drawerChoice)) setTimeout(() => setSidebar(true, false));
 });
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || !isNarrow() || sidebarCollapsed) return;
+  setSidebar(true); $('#sidebarToggle').focus(); event.stopImmediatePropagation();
+}, true);

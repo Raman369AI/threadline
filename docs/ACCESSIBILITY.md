@@ -2,10 +2,20 @@
 
 [Documentation home](README.md) · [Project home](../README.md)
 
+## Redesigned catalog pages and sidebar drawer — 2026-09-30
+
+Chrome 153 on Linux passed 92 keyboard, reflow, zoom, and accessibility checks with zero
+axe violations across 25 audited states in each theme. The new checks cover arrow-key
+movement through the sidebar tree (Right opens a folder, Left closes it) and opening and
+closing the narrow-window sidebar drawer with the keyboard; the open drawer is audited at
+390 pixels. Native Safari, Firefox, VS Code's own webview, and human assistive-technology
+review have not been run. The VS Code styling was checked in Chrome using the colors of the
+installed Dark Modern and Light Modern themes, not in VS Code itself.
+
 ## Dark mode — 2026-09-26
 
-The review follows the system light or dark setting; **Theme** in the header switches
-between System, Light, and Dark and is remembered in that browser. Every audited state
+The review is dark by default; **Theme** in the header switches between Dark, Light, and
+System (which follows the system setting) and is remembered in that browser. Every audited state
 below is now checked by axe in both light and dark themes: Chrome 153 on Linux passed
 84 checks with zero axe violations across 24 states in each theme, including resizing the code pane from the keyboard and moving focus into and out of the Instructions panel. Native Safari has not
 been rerun with dark mode.

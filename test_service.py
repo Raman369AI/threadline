@@ -75,7 +75,7 @@ def service(value):
         self.assertEqual(modules['nextCursor'], 20)
         self.assertEqual(len(self.store.modules(cursor=20)['modules']['items']), 7)
         match = self.store.modules(query='module_24')['modules']['items']
-        self.assertEqual(match, [{'name': 'module_24', 'file': 'module_24.py', 'total': 2}])
+        self.assertEqual(match, [{'name': 'module_24', 'file': 'module_24.py', 'total': 2, 'async': 0, 'routes': 0}])
         picked = self.store.modules(file='module_24.py')['methods']['items']
         self.assertEqual([row['name'] for row in picked], ['Worker.run', 'Worker.__init__'])
         self.assertTrue(all(row['file'] == 'module_24.py' for row in picked))

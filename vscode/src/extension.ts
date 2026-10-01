@@ -120,7 +120,8 @@ export class ReviewSession implements vscode.Disposable {
     if (this.stale) await this.refresh();
   }
   private startFragment(symbol?: string): string {
-    return symbol ? '#' + encodeURIComponent(symbol) : '?page=methods' + (this.base ? '&changes=1' : '');
+    // With no method chosen the review picks its own first page: endpoints, then commands, then modules.
+    return symbol ? '#' + encodeURIComponent(symbol) : this.base ? '?changes=1' : '';
   }
   private label(name?: string): string {
     return 'Threadline · ' + (name || (this.base ? 'changes vs ' + this.base : this.folder.name));
@@ -262,8 +263,12 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('setContext', 'threadline.reviewOpen', open);
     if (opening) {
       status.text = '$(sync~spin) Threadline: indexing…'; status.tooltip = 'Reading saved Python source'; status.command = 'threadline.showLog';
-    } else if (!open) { status.hide(); return; }
-    else if (current!.isRefreshing) {
+    } else if (!open) {
+      // Before any review is open, offer one wherever Python is being read.
+      if (!vscode.workspace.isTrusted || vscode.window.activeTextEditor?.document.languageId !== 'python') { status.hide(); return; }
+      status.text = '$(type-hierarchy) Threadline'; status.tooltip = 'Review the function at the cursor: its calls, effects, tests, and callers';
+      status.command = 'threadline.reviewFunction';
+    } else if (current!.isRefreshing) {
       status.text = '$(sync~spin) Threadline'; status.tooltip = 'Refreshing the review'; status.command = 'threadline.showReview';
     } else if (current!.stale) {
       const dirty = current!.dirty();
@@ -383,6 +388,8 @@ export function activate(context: vscode.ExtensionContext) {
     });
   }));
   command('threadline.reopen', () => reopen());
+  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateStatus), vscode.workspace.onDidGrantWorkspaceTrust(updateStatus));
+  updateStatus();
   context.subscriptions.push(output, documents, status, {dispose:() => { watching?.dispose(); current?.dispose(); }});
-  return {get current() { return current; }};
+  return {get current() { return current; }, get status() { return status; }};
 }

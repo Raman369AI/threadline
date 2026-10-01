@@ -2,7 +2,7 @@
   "name": "threadline-review",
   "displayName": "Threadline — Python Review",
   "description": "Read Python methods, calls, effects, tests, and Git changes together, directly from source.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "Raman369AI",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -67,7 +67,7 @@
     "commands": [
       {
         "command": "threadline.reviewFunction",
-        "title": "Open Review",
+        "title": "Review Function at Cursor",
         "category": "Threadline",
         "icon": "$(type-hierarchy)"
       },
@@ -108,13 +108,15 @@
       "editor/context": [
         {
           "command": "threadline.reviewFunction",
-          "group": "navigation@10"
+          "group": "navigation@10",
+          "when": "resourceLangId == python"
         }
       ],
       "editor/title": [
         {
           "command": "threadline.reviewFunction",
-          "group": "navigation@90"
+          "group": "navigation@90",
+          "when": "resourceLangId == python"
         }
       ],
       "explorer/context": [
@@ -178,13 +180,77 @@
           "description": "Refresh an open review automatically after Python files are saved or changed on disk. Turn off for very large repositories and use Threadline: Refresh Review instead."
         }
       }
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "threadline.gettingStarted",
+        "title": "Get started with Threadline",
+        "description": "Read a Python method with its calls, effects, tests, and callers beside the code, without running anything.",
+        "steps": [
+          {
+            "id": "threadline.open",
+            "title": "Open a Python project",
+            "description": "Threadline reads your **saved** Python source. It never imports or runs it, and nothing leaves your machine.\\nOpen a folder with Python files and trust the workspace.\\n[Open Folder](command:workbench.action.files.openFolder)",
+            "media": {
+              "markdown": "media/walkthrough/open.md"
+            },
+            "completionEvents": [
+              "onContext:workspaceFolderCount >= 1"
+            ]
+          },
+          {
+            "id": "threadline.function",
+            "title": "Review the function you are reading",
+            "description": "Put the cursor in a Python function, then select the Threadline button in the editor title bar or the **Threadline** item in the status bar.\\n[Review Function at Cursor](command:threadline.reviewFunction)",
+            "media": {
+              "markdown": "media/walkthrough/function.md"
+            },
+            "completionEvents": [
+              "onCommand:threadline.reviewFunction"
+            ]
+          },
+          {
+            "id": "threadline.workspace",
+            "title": "Start from the whole project",
+            "description": "Browse endpoints, commands, and modules, then open any method to follow its calls.\\n[Review Workspace](command:threadline.reviewWorkspace)",
+            "media": {
+              "markdown": "media/walkthrough/workspace.md"
+            },
+            "completionEvents": [
+              "onCommand:threadline.reviewWorkspace"
+            ]
+          },
+          {
+            "id": "threadline.changes",
+            "title": "Review a branch or your uncommitted edits",
+            "description": "Compare saved files with HEAD, a branch, or a tag and see which methods changed, and what calls them.\\n[Review Git Changes](command:threadline.reviewChanges)",
+            "media": {
+              "markdown": "media/walkthrough/changes.md"
+            },
+            "completionEvents": [
+              "onCommand:threadline.reviewChanges"
+            ]
+          },
+          {
+            "id": "threadline.python",
+            "title": "If Python cannot be found",
+            "description": "Threadline needs Python 3.12 or newer. Pick the interpreter it should use; it is checked before it is saved.\\n[Choose Python Interpreter…](command:threadline.choosePython)",
+            "media": {
+              "markdown": "media/walkthrough/python.md"
+            },
+            "completionEvents": [
+              "onCommand:threadline.choosePython"
+            ]
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "prepare-assets": "node scripts/prepare.mjs",
     "compile": "npm run prepare-assets && tsc -p .",
     "vscode:prepublish": "npm run compile",
-    "package": "vsce package --no-dependencies --out dist/threadline-review-0.1.1.vsix",
+    "package": "vsce package --no-dependencies --out dist/threadline-review-0.2.0.vsix",
     "test": "npm run compile && node --test tests/client.test.cjs && node scripts/test.mjs"
   },
   "devDependencies": {

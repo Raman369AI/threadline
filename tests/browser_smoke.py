@@ -164,7 +164,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
             time.sleep(.02)
         checks['module_method_opens_same_workflow']=js("workflowState.profile.stages.some(s=>s.depth>1) && [...document.querySelectorAll('.workflow-stage-place')].some(p=>p.textContent.startsWith('called at '))")
 
-        def until(expression, tries=250):
+        def until(expression, tries=750):
             for _ in range(tries):
                 if js(expression): return True
                 time.sleep(.02)
@@ -174,7 +174,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         until("document.querySelectorAll('.mod-item').length>0")
         js("document.querySelector('#sideTree .tree-file[data-file=\"service.py\"]').click()")
         checks['tree_file_opens_its_card']=until("document.querySelector('.mod-item[open]')?.dataset.file==='service.py' && document.querySelector('.mod-item[open] .mod-method') && document.querySelector('#sideTree .tree-file.active')?.dataset.file==='service.py'")
-        checks['module_row_shows_params_and_calls']=js("(()=>{const row=document.querySelector('.mod-item[open] .mod-method');return row.querySelector('.mm-params').textContent.includes('repository, notifier') && /^calls: [1-9]/.test(row.querySelector('.mm-meta').textContent)})()")
+        checks['module_row_shows_params_and_calls']=until("(()=>{const row=document.querySelector('.mod-item[open] .mod-method');return row.querySelector('.mm-params').textContent.includes('repository, notifier') && /^calls: [1-9]/.test(row.querySelector('.mm-meta').textContent)})()")
         calls_in_row=js("Number(document.querySelector('.mod-item[open] .mm-meta [title^=\"Project methods\"]').textContent.split(': ')[1])")
         js("document.querySelector('.mod-item[open] .mod-method').click()")
         # Wait on the value itself: the previous method's review bar is still on screen until the new one renders.
@@ -215,28 +215,31 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         js("document.querySelector('#sideTree .tree-file[data-file=\"helpers.py\"]').click()")
         until("document.querySelector('.mod-item[open] .mod-method')!==null")
         js("document.querySelector('.mod-item[open] .mod-method').click()")
-        until("document.querySelector('#methodName').textContent==='clean_email' && document.querySelector('#reviewNav .nav-where')!==null")
-        checks['review_bar_shows_position']=js("document.querySelector('#reviewNav .nav-where').textContent.startsWith('1 of 2 in helpers.py') && document.querySelector('#reviewNav .nav-step').disabled")
+        # Every wait below names the new method's own bar (its file position), because the previous bar stays on
+        # screen until the new one renders and would satisfy any weaker test.
+        bar = lambda name, position: "document.querySelector('#methodName').textContent==='"+name+"' && document.querySelector('#reviewNav .nav-where')?.textContent.startsWith('"+position+"')"
+        until(bar('clean_email', '1 of 2 in helpers.py'))
+        checks['review_bar_shows_position']=until("document.querySelector('#reviewNav .nav-where')?.textContent.startsWith('1 of 2 in helpers.py') && document.querySelector('#reviewNav .nav-step')?.disabled===true")
         js("[...document.querySelectorAll('#reviewNav .nav-step')][1].click()")
-        checks['next_method_in_the_file']=until("document.querySelector('#methodName').textContent==='calculate_total' && document.querySelector('#reviewNav .nav-where').textContent.startsWith('2 of 2') && [...document.querySelectorAll('#reviewNav .nav-step')][1].disabled")
+        checks['next_method_in_the_file']=until(bar('calculate_total', '2 of 2 in helpers.py')+" && [...document.querySelectorAll('#reviewNav .nav-step')][1]?.disabled===true")
         js("document.body.focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'[',bubbles:true}))")
-        checks['bracket_keys_step_through_the_file']=until("document.querySelector('#methodName').textContent==='clean_email' && document.querySelector('#reviewNav .nav-where')?.textContent.startsWith('1 of 2')")
+        checks['bracket_keys_step_through_the_file']=until(bar('clean_email', '1 of 2 in helpers.py'))
         js("document.dispatchEvent(new KeyboardEvent('keydown',{key:']',bubbles:true}))")
-        until("document.querySelector('#methodName').textContent==='calculate_total' && document.querySelector('#reviewNav .nav-where')?.textContent.startsWith('2 of 2') && document.querySelector('#reviewNav .nav-primary')!==null")
-        checks['primary_link_names_the_first_caller']=js("document.querySelector('#reviewNav .nav-primary').textContent.includes('place_order') && state.stack.length===0")
+        until(bar('calculate_total', '2 of 2 in helpers.py')+" && document.querySelector('#reviewNav .nav-primary')!==null && document.querySelector('#reviewNav .nav-menu[data-kind=called-by]')!==null")
+        checks['primary_link_names_the_first_caller']=until("document.querySelector('#reviewNav .nav-primary')?.textContent.includes('place_order') && state.stack.length===0")
         js("document.querySelector('#reviewNav .nav-menu[data-kind=called-by] summary').click()")
         checks['called_by_menu_lists_callers']=until("document.querySelector('#reviewNav .nav-menu[open] .cf-row-name')?.textContent==='place_order'")
         js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
-        checks['escape_closes_the_menu']=js("document.querySelector('#reviewNav .nav-menu[open]')===null")
+        checks['escape_closes_the_menu']=until("document.querySelector('#reviewNav .nav-menu[open]')===null")
         js("document.querySelector('#reviewNav .nav-menu[data-kind=called-by] summary').click();document.querySelector('#reviewNav .nav-menu[open] .cf-row').click()")
-        checks['called_by_menu_opens_the_caller']=until("document.querySelector('#methodName').textContent==='place_order' && state.stack.length===1")
-        until("document.querySelector('#reviewNav .nav-primary')?.textContent.includes('calculate_total')")
-        checks['back_link_does_not_claim_a_caller']=js("document.querySelector('#reviewNav .nav-primary').textContent.startsWith('← Back to')")
+        checks['called_by_menu_opens_the_caller']=until(bar('place_order', '1 of 1 in service.py')+" && state.stack.length===1")
+        checks['back_link_does_not_claim_a_caller']=until("document.querySelector('#reviewNav .nav-primary')?.textContent.startsWith('← Back to calculate_total')")
         js("document.querySelector('#reviewNav .nav-primary').click()")
-        checks['primary_link_goes_back']=until("document.querySelector('#methodName').textContent==='calculate_total' && state.stack.length===0")
+        checks['primary_link_goes_back']=until(bar('calculate_total', '2 of 2 in helpers.py')+" && state.stack.length===0")
         # Narrow window: the sidebar is a drawer, closed to start, closed again by a choice or Escape.
         command('Emulation.setDeviceMetricsOverride',{'width':390,'height':850,'deviceScaleFactor':1,'mobile':True})
         checks['narrow_sidebar_starts_closed']=until("document.querySelector('.workspace').classList.contains('sidebar-collapsed')")
+        checks['narrow_view_tabs_stay_on_screen']=until("document.querySelector('#narrowTabs #methodsTab')!==null && document.querySelector('#narrowTabs').getBoundingClientRect().height>0 && document.querySelector('#methodsTab').getBoundingClientRect().width>0 && document.querySelector('.workspace').classList.contains('sidebar-collapsed')")
         js("document.querySelector('#sidebarToggle').click()")
         checks['narrow_sidebar_is_a_drawer']=until("(()=>{const nav=document.querySelector('#repositoryNavigator'),box=nav.getBoundingClientRect();return getComputedStyle(nav).position==='fixed' && box.width>200 && box.width<=351 && box.height>300 && document.documentElement.scrollWidth<=innerWidth})()")
         js("document.querySelector('#commandsTab').click()")
@@ -253,6 +256,7 @@ with tempfile.TemporaryDirectory(prefix='threadline-chrome-') as profile:
         checks['choosing_a_result_closes_the_drawer']=until("document.querySelector('.workspace').classList.contains('sidebar-collapsed') && state.scope!==null")
         command('Emulation.setDeviceMetricsOverride',{'width':1280,'height':900,'deviceScaleFactor':1,'mobile':False})
         js("if(sidebarCollapsed)document.querySelector('#sidebarToggle').click()")
+        checks['wide_view_tabs_return_to_the_sidebar']=until("document.querySelector('#repositoryNavigator #methodsTab')!==null && document.querySelector('#narrowTabs').childElementCount===0")
         for category, page, expected in (('http','endpoints','list_tasks'),('commands','commands','main')):
             js("showStartPage("+json.dumps(page)+")")
             js("[...document.querySelectorAll('#startGroups [data-category="+category+"] .start-item')].find(item=>item.textContent.includes("+json.dumps(expected)+")).click()")

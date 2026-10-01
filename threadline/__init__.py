@@ -1,6 +1,6 @@
 """Threadline: source-backed Python workflow review."""
 
-__version__ = "0.2.0b6"
+__version__ = "0.2.0b7"
 
 from .analyzer import Analyzer, analyze
 from .service import SnapshotStore, ThreadlineError

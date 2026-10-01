@@ -796,6 +796,11 @@ button.cf-call:hover{background:color-mix(in srgb,var(--accent-line) 14%,transpa
   .cf-context{overflow-y:auto}
 }
 @container review (max-width:760px){
+  .method-title .method-name{font-size:18px;line-height:26px}
+  .review-heading{padding:16px 16px 0}
+  .cf-summary{padding:12px 16px 0}
+  .cf-hint{padding:8px 16px 10px}
+  .review-nav{padding:8px 12px}
   .cf-main{overflow:visible}
   .cf-code{flex:none;overflow-x:auto}
   .review-nav{position:static;flex-wrap:wrap}
@@ -824,6 +829,7 @@ button.cf-call:hover{background:color-mix(in srgb,var(--accent-line) 14%,transpa
 .start-page{display:grid;grid-template-columns:minmax(0,1fr);align-items:start}
 .catalog-main{min-width:0}
 .catalog-inspector{display:none}
+.narrow-tabs{display:none}
 @container page (min-width:1200px){
   .start-page{grid-template-columns:minmax(0,1fr) 320px;gap:16px}
   .catalog-inspector{display:flex;flex-direction:column;gap:12px;position:sticky;top:0;max-height:calc(100dvh - 88px);overflow:auto;padding:16px;border:1px solid var(--edge);border-radius:4px;background:var(--side-bg)}
@@ -856,8 +862,14 @@ button.cf-call:hover{background:color-mix(in srgb,var(--accent-line) 14%,transpa
 
 /* Narrow window: the sidebar is a drawer over the page, closed until opened with the menu button. */
 @container page (max-width:900px){
-  .workspace:not(.choosing),.workspace.choosing,.workspace.choosing:has(#navigation .nav-item){grid-template-rows:minmax(0,1fr)}
-  .workspace .review,.workspace.choosing .start-page,.workspace .comparison-panel{grid-row:1;grid-column:1}
+  .workspace:not(.choosing),.workspace.choosing,.workspace.choosing:has(#navigation .nav-item){grid-template-rows:auto minmax(0,1fr)}
+  .workspace .review,.workspace.choosing .start-page,.workspace .comparison-panel{grid-row:2;grid-column:1}
+  .workspace.sidebar-collapsed:not(.choosing),.workspace.choosing.sidebar-collapsed{grid-template-rows:auto minmax(0,1fr)}
+  .workspace.sidebar-collapsed .review,.workspace.choosing.sidebar-collapsed .start-page{grid-row:2}
+  .narrow-tabs{display:block;grid-row:1;grid-column:1;min-width:0;padding:6px 8px;background:var(--side-bg);border-bottom:1px solid var(--muted-bg)}
+  .narrow-tabs .view-tabs{flex-direction:row;gap:4px;margin:0;padding:0;border:0;overflow-x:auto}
+  .narrow-tabs .view-tabs button{flex:0 0 auto;white-space:nowrap;gap:8px}
+  .navigator>.nav-label:first-child{display:none}
   .workspace:not(.sidebar-collapsed) .navigator{position:fixed;top:94px;left:0;bottom:0;z-index:30;width:min(320px,88vw);height:auto;padding:0;overflow:auto;display:flex;flex-direction:column;box-shadow:0 0 0 100vmax #0007}
   .workspace.sidebar-collapsed .navigator{display:none}
 }
